@@ -110,6 +110,7 @@ public class SubscriptionInfoUpdater extends Handler {
     // The current foreground user ID.
     private int mCurrentlyActiveUserId;
     private CarrierServiceBindHelper mCarrierServiceBindHelper;
+    private boolean mIsShutdown;
 
     public SubscriptionInfoUpdater(Context context, Phone[] phoneProxy, CommandsInterface[] ci) {
         logd("Constructor invoked");
@@ -118,9 +119,11 @@ public class SubscriptionInfoUpdater extends Handler {
         mPhone = phoneProxy;
         mSubscriptionManager = SubscriptionManager.from(mContext);
         mPackageManager = IPackageManager.Stub.asInterface(ServiceManager.getService("package"));
+        mIsShutdown = false;
 
         IntentFilter intentFilter = new IntentFilter(TelephonyIntents.ACTION_SIM_STATE_CHANGED);
         intentFilter.addAction(IccCardProxy.ACTION_INTERNAL_SIM_STATE_CHANGED);
+        intentFilter.addAction(Intent.ACTION_SHUTDOWN);
         mContext.registerReceiver(sReceiver, intentFilter);
 
         mCarrierServiceBindHelper = new CarrierServiceBindHelper(mContext);
@@ -175,6 +178,11 @@ public class SubscriptionInfoUpdater extends Handler {
             logd("[Receiver]+");
             String action = intent.getAction();
             logd("Action: " + action);
+
+            if (action.equals(Intent.ACTION_SHUTDOWN)) {
+                mIsShutdown = true;
+                return;
+            }
 
             if (!action.equals(TelephonyIntents.ACTION_SIM_STATE_CHANGED) &&
                 !action.equals(IccCardProxy.ACTION_INTERNAL_SIM_STATE_CHANGED)) {
@@ -487,7 +495,7 @@ public class SubscriptionInfoUpdater extends Handler {
                 == TelephonyManager.MultiSimVariants.DSDS;
         if (DBG) Rlog.d(LOG_TAG, "[setDefaultDataSubNetworkType] subId=" + subId);
         if (DBG) Rlog.d(LOG_TAG, "[setDefaultDataSubNetworkType] isDSDS=" + isDsds);
-        boolean isMultiRat = SystemProperties.getBoolean("ro.ril.multi_rat_capable", false);
+        boolean isMultiRat = SystemProperties.getBoolean("ro.ril.multi_rat_capable", true);
 
         if (isDsds && !isMultiRat) {
             int networkType2 = Phone.NT_MODE_GSM_ONLY; // Hardcoded due to modem limitation
@@ -697,7 +705,7 @@ public class SubscriptionInfoUpdater extends Handler {
             }
         }
 
-        if (insertedSimCount == 1) {
+        if (!mIsShutdown && insertedSimCount == 1) {
             SubscriptionInfo sir = subInfos.get(0);
             int subId = sir.getSubscriptionId();
             mSubscriptionManager.setDefaultDataSubId(subId);
