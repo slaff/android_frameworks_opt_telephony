@@ -30,7 +30,7 @@ import com.android.internal.telephony.UUSInfo;
 
 /**
  * Volte doesn't need CommandsInterface. The class does nothing but made to work
- * with PhoneBase's constructor.
+ * with Phone's constructor.
  */
 class ImsPhoneCommandInterface extends BaseCommands implements CommandsInterface {
     ImsPhoneCommandInterface(Context context) {
@@ -74,7 +74,7 @@ class ImsPhoneCommandInterface extends BaseCommands implements CommandsInterface
     }
 
     @Override
-    public void supplyNetworkDepersonalization(String netpin, String type, Message result) {
+    public void supplyNetworkDepersonalization(String netpin, Message result) {
     }
 
     @Override
@@ -255,8 +255,8 @@ class ImsPhoneCommandInterface extends BaseCommands implements CommandsInterface
     }
 
     @Override
-    public void setupDataCall(String radioTechnology, String profile,
-            String apn, String user, String password, String authType,
+    public void setupDataCall(int radioTechnology, int profile,
+            String apn, String user, String password, int authType,
             String protocol, Message result) {
     }
 
@@ -610,10 +610,4 @@ class ImsPhoneCommandInterface extends BaseCommands implements CommandsInterface
     @Override
     public void getModemActivityInfo(Message result) {
     }
-
-    @Override
-    public void setMaxTransmitPower(int state, Message response) {
-    }
-
-    public boolean needsOldRilFeature(String feature) { return false; }
 }

@@ -43,15 +43,17 @@ import static com.android.internal.telephony.uicc.IccConstants.EF_PCSCF;
 /**
  * {@hide}
  */
-public final class IsimUiccRecords extends IccRecords implements IsimRecords {
+public class IsimUiccRecords extends IccRecords implements IsimRecords {
     protected static final String LOG_TAG = "IsimUiccRecords";
 
     private static final boolean DBG = true;
+    private static final boolean VDBG = false; // STOPSHIP if true
     private static final boolean DUMP_RECORDS = false;  // Note: PII is logged when this is true
                                                         // STOPSHIP if true
     public static final String INTENT_ISIM_REFRESH = "com.android.intent.isim_refresh";
 
     private static final int EVENT_APP_READY = 1;
+    private static final int EVENT_ISIM_REFRESH = 31;
     private static final int EVENT_AKA_AUTHENTICATE_DONE          = 90;
 
     // ISIM EF records (see 3GPP TS 31.103)
@@ -85,6 +87,7 @@ public final class IsimUiccRecords extends IccRecords implements IsimRecords {
         mRecordsToLoad = 0;
         // Start off by setting empty state
         resetRecords();
+        mCi.registerForIccRefresh(this, EVENT_ISIM_REFRESH, null);
 
         mParentApp.registerForReady(this, EVENT_APP_READY, null);
         if (DBG) log("IsimUiccRecords X ctor this=" + this);
@@ -94,6 +97,7 @@ public final class IsimUiccRecords extends IccRecords implements IsimRecords {
     public void dispose() {
         log("Disposing " + this);
         //Unregister for all events
+        mCi.unregisterForIccRefresh(this);
         mParentApp.unregisterForReady(this);
         resetRecords();
         super.dispose();
@@ -114,6 +118,10 @@ public final class IsimUiccRecords extends IccRecords implements IsimRecords {
             switch (msg.what) {
                 case EVENT_APP_READY:
                     onReady();
+                    break;
+
+                case EVENT_ISIM_REFRESH:
+                    broadcastRefresh();
                     break;
 
                 case EVENT_AKA_AUTHENTICATE_DONE:
@@ -263,7 +271,9 @@ public final class IsimUiccRecords extends IccRecords implements IsimRecords {
             }
         } while (tlv.nextObject());
 
-        Rlog.e(LOG_TAG, "[ISIM] can't find TLV tag in ISIM record, returning null");
+        if (VDBG) {
+            Rlog.d(LOG_TAG, "[ISIM] can't find TLV. record = " + IccUtils.bytesToHexString(record));
+        }
         return null;
     }
 
@@ -327,8 +337,7 @@ public final class IsimUiccRecords extends IccRecords implements IsimRecords {
         }
     }
 
-    @Override
-    protected void broadcastRefresh() {
+    private void broadcastRefresh() {
         Intent intent = new Intent(INTENT_ISIM_REFRESH);
         log("send ISim REFRESH: " + INTENT_ISIM_REFRESH);
         mContext.sendBroadcast(intent);

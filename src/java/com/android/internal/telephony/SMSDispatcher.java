@@ -39,7 +39,6 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.Process;
 import android.os.RemoteException;
-import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.provider.Telephony;
@@ -78,6 +77,7 @@ import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static android.Manifest.permission.SEND_SMS_NO_CONFIRMATION;
 import static android.telephony.SmsManager.RESULT_ERROR_FDN_CHECK_FAILURE;
 import static android.telephony.SmsManager.RESULT_ERROR_GENERIC_FAILURE;
 import static android.telephony.SmsManager.RESULT_ERROR_LIMIT_EXCEEDED;
@@ -90,10 +90,6 @@ public abstract class SMSDispatcher extends Handler {
     static final boolean DBG = false;
     private static final String SEND_NEXT_MSG_EXTRA = "SendNextMsg";
     private static final float MAX_LABEL_SIZE_PX = 500f;
-
-    /** Permission required to send SMS to short codes without user confirmation. */
-    private static final String SEND_RESPOND_VIA_MESSAGE_PERMISSION =
-            "android.permission.SEND_RESPOND_VIA_MESSAGE";
 
     private static final int PREMIUM_RULE_USE_SIM = 1;
     private static final int PREMIUM_RULE_USE_NETWORK = 2;
@@ -138,7 +134,7 @@ public abstract class SMSDispatcher extends Handler {
     protected static final int EVENT_NEW_ICC_SMS = 14;
     protected static final int EVENT_ICC_CHANGED = 15;
 
-    protected PhoneBase mPhone;
+    protected Phone mPhone;
     protected final Context mContext;
     protected final ContentResolver mResolver;
     protected final CommandsInterface mCi;
@@ -183,7 +179,7 @@ public abstract class SMSDispatcher extends Handler {
      * @param phone the Phone to use
      * @param usageMonitor the SmsUsageMonitor to use
      */
-    protected SMSDispatcher(PhoneBase phone, SmsUsageMonitor usageMonitor,
+    protected SMSDispatcher(Phone phone, SmsUsageMonitor usageMonitor,
             ImsSMSDispatcher imsSMSDispatcher) {
         mPhone = phone;
         mImsSMSDispatcher = imsSMSDispatcher;
@@ -224,7 +220,7 @@ public abstract class SMSDispatcher extends Handler {
         }
     }
 
-    protected void updatePhoneObject(PhoneBase phone) {
+    protected void updatePhoneObject(Phone phone) {
         mPhone = phone;
         mUsageMonitor = phone.mSmsUsageMonitor;
         Rlog.d(TAG, "Active phone changed to " + mPhone.getPhoneName() );
@@ -375,7 +371,7 @@ public abstract class SMSDispatcher extends Handler {
 
         @Override
         protected void onServiceReady(ICarrierMessagingService carrierMessagingService) {
-            HashMap<String, Object> map = mTracker.mData;
+            HashMap<String, Object> map = mTracker.getData();
             String text = (String) map.get("text");
 
             if (text != null) {
@@ -407,7 +403,7 @@ public abstract class SMSDispatcher extends Handler {
 
         @Override
         protected void onServiceReady(ICarrierMessagingService carrierMessagingService) {
-            HashMap<String, Object> map = mTracker.mData;
+            HashMap<String, Object> map = mTracker.getData();
             byte[] data = (byte[]) map.get("data");
             int destPort = (int) map.get("destPort");
 
@@ -462,8 +458,8 @@ public abstract class SMSDispatcher extends Handler {
         }
 
         @Override
-        public void onFilterComplete(boolean keepMessage) {
-            Rlog.e(TAG, "Unexpected onFilterComplete call with result: " + keepMessage);
+        public void onFilterComplete(int result) {
+            Rlog.e(TAG, "Unexpected onFilterComplete call with result: " + result);
         }
 
         @Override
@@ -596,8 +592,8 @@ public abstract class SMSDispatcher extends Handler {
         }
 
         @Override
-        public void onFilterComplete(boolean keepMessage) {
-            Rlog.e(TAG, "Unexpected onFilterComplete call with result: " + keepMessage);
+        public void onFilterComplete(int result) {
+            Rlog.e(TAG, "Unexpected onFilterComplete call with result: " + result);
         }
 
         @Override
@@ -994,7 +990,7 @@ public abstract class SMSDispatcher extends Handler {
      * -param destAddr the destination phone number (for short code confirmation)
      */
     protected void sendRawPdu(SmsTracker tracker) {
-        HashMap map = tracker.mData;
+        HashMap map = tracker.getData();
         byte pdu[] = (byte[]) map.get("pdu");
 
         if (mSmsSendDisabled) {
@@ -1043,6 +1039,10 @@ public abstract class SMSDispatcher extends Handler {
 
             sendSms(tracker);
         }
+
+        if (PhoneNumberUtils.isLocalEmergencyNumber(mContext, tracker.mDestAddress)) {
+            new AsyncEmergencyContactNotifier(mContext).execute();
+        }
     }
 
     /**
@@ -1053,7 +1053,7 @@ public abstract class SMSDispatcher extends Handler {
      * @return true if the destination is approved; false if user confirmation event was sent
      */
     boolean checkDestination(SmsTracker tracker) {
-        if (mContext.checkCallingOrSelfPermission(SEND_RESPOND_VIA_MESSAGE_PERMISSION)
+        if (mContext.checkCallingOrSelfPermission(SEND_SMS_NO_CONFIRMATION)
                 == PackageManager.PERMISSION_GRANTED) {
             return true;            // app is pre-approved to send to short codes
         } else {
@@ -1353,7 +1353,7 @@ public abstract class SMSDispatcher extends Handler {
         ArrayList<PendingIntent> sentIntents;
         ArrayList<PendingIntent> deliveryIntents;
 
-        HashMap<String, Object> map = tracker.mData;
+        HashMap<String, Object> map = tracker.getData();
 
         String destinationAddress = (String) map.get("destination");
         String scAddress = (String) map.get("scaddress");
@@ -1385,9 +1385,9 @@ public abstract class SMSDispatcher extends Handler {
      * Keeps track of an SMS that has been sent to the RIL, until it has
      * successfully been sent, or we're done trying.
      */
-    protected static final class SmsTracker {
+    public static class SmsTracker {
         // fields need to be public for derived SmsDispatchers
-        public final HashMap<String, Object> mData;
+        private final HashMap<String, Object> mData;
         public int mRetryCount;
         public int mImsRetry; // nonzero indicates initial message was sent over Ims
         public int mMessageRef;
@@ -1452,6 +1452,10 @@ public abstract class SMSDispatcher extends Handler {
          */
         boolean isMultipart() {
             return mData.containsKey("parts");
+        }
+
+        public HashMap<String, Object> getData() {
+            return mData;
         }
 
         /**
@@ -1836,7 +1840,7 @@ public abstract class SMSDispatcher extends Handler {
     }
 
     protected int getSubId() {
-        return SubscriptionController.getInstance().getSubIdUsingPhoneId(mPhone.mPhoneId);
+        return SubscriptionController.getInstance().getSubIdUsingPhoneId(mPhone.getPhoneId());
     }
 
     private void checkCallerIsPhoneOrCarrierApp() {

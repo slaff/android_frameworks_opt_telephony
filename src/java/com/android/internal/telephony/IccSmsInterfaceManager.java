@@ -39,8 +39,8 @@ import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
 import com.android.internal.telephony.uicc.IccConstants;
 import com.android.internal.telephony.uicc.IccFileHandler;
+import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.telephony.uicc.UiccController;
-import com.android.internal.telephony.SmsNumberUtils;
 import com.android.internal.telephony.uicc.IccRecords;
 import com.android.internal.util.HexDump;
 
@@ -78,7 +78,7 @@ public class IccSmsInterfaceManager {
     private static final int SMS_CB_CODE_SCHEME_MIN = 0;
     private static final int SMS_CB_CODE_SCHEME_MAX = 255;
 
-    protected PhoneBase mPhone;
+    protected Phone mPhone;
     final protected Context mContext;
     final protected AppOpsManager mAppOps;
     final private UserManager mUserManager;
@@ -108,8 +108,7 @@ public class IccSmsInterfaceManager {
                             if (Rlog.isLoggable("SMS", Log.DEBUG)) {
                                 log("Cannot load Sms records");
                             }
-                            if (mSms != null)
-                                mSms.clear();
+                            mSms = null;
                         }
                         mLock.notifyAll();
                     }
@@ -126,7 +125,7 @@ public class IccSmsInterfaceManager {
         }
     };
 
-    protected IccSmsInterfaceManager(PhoneBase phone) {
+    protected IccSmsInterfaceManager(Phone phone) {
         mPhone = phone;
         mContext = phone.getContext();
         mAppOps = (AppOpsManager) mContext.getSystemService(Context.APP_OPS_SERVICE);
@@ -168,7 +167,7 @@ public class IccSmsInterfaceManager {
         }
     }
 
-    protected void updatePhoneObject(PhoneBase phone) {
+    protected void updatePhoneObject(Phone phone) {
         mPhone = phone;
         mDispatcher.updatePhoneObject(phone);
     }
@@ -299,10 +298,8 @@ public class IccSmsInterfaceManager {
             IccFileHandler fh = mPhone.getIccFileHandler();
             if (fh == null) {
                 Rlog.e(LOG_TAG, "Cannot load Sms records. No icc card?");
-                if (mSms != null) {
-                    mSms.clear();
-                    return mSms;
-                }
+                mSms = null;
+                return mSms;
             }
 
             Message response = mHandler.obtainMessage(EVENT_LOAD_DONE);
@@ -787,7 +784,6 @@ public class IccSmsInterfaceManager {
     }
 
     synchronized public boolean enableGsmBroadcastRange(int startMessageId, int endMessageId) {
-        if (DBG) log("enableGsmBroadcastRange");
 
         Context context = mPhone.getContext();
 
@@ -814,7 +810,6 @@ public class IccSmsInterfaceManager {
     }
 
     synchronized public boolean disableGsmBroadcastRange(int startMessageId, int endMessageId) {
-        if (DBG) log("disableGsmBroadcastRange");
 
         Context context = mPhone.getContext();
 
@@ -841,7 +836,6 @@ public class IccSmsInterfaceManager {
     }
 
     synchronized public boolean enableCdmaBroadcastRange(int startMessageId, int endMessageId) {
-        if (DBG) log("enableCdmaBroadcastRange");
 
         Context context = mPhone.getContext();
 
@@ -868,7 +862,6 @@ public class IccSmsInterfaceManager {
     }
 
     synchronized public boolean disableCdmaBroadcastRange(int startMessageId, int endMessageId) {
-        if (DBG) log("disableCdmaBroadcastRange");
 
         Context context = mPhone.getContext();
 

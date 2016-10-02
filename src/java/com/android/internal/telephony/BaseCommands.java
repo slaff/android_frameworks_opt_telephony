@@ -27,6 +27,7 @@ import android.telephony.RadioAccessFamily;
 import android.telephony.TelephonyManager;
 
 import com.android.internal.telephony.RadioCapability;
+import com.android.internal.telephony.uicc.SimPhoneBookAdnRecord;
 
 /**
  * {@hide}
@@ -73,6 +74,8 @@ public abstract class BaseCommands implements CommandsInterface {
     protected RegistrantList mHardwareConfigChangeRegistrants = new RegistrantList();
     protected RegistrantList mPhoneRadioCapabilityChangedRegistrants =
             new RegistrantList();
+    protected RegistrantList mAdnInitDoneRegistrants = new RegistrantList();
+    protected RegistrantList mAdnRecordsInfoRegistrants = new RegistrantList();
 
     protected Registrant mGsmSmsRegistrant;
     protected Registrant mCdmaSmsRegistrant;
@@ -86,7 +89,6 @@ public abstract class BaseCommands implements CommandsInterface {
     protected Registrant mCatProCmdRegistrant;
     protected Registrant mCatEventRegistrant;
     protected Registrant mCatCallSetUpRegistrant;
-    protected Registrant mCatSendSmsResultRegistrant;
     protected Registrant mIccSmsFullRegistrant;
     protected Registrant mEmergencyCallbackModeRegistrant;
     protected Registrant mRingRegistrant;
@@ -102,7 +104,7 @@ public abstract class BaseCommands implements CommandsInterface {
     protected int mPreferredNetworkType;
     // CDMA subscription received from PhoneFactory
     protected int mCdmaSubscription;
-    // Type of Phone, GSM or CDMA. Set by CDMAPhone or GSMPhone.
+    // Type of Phone, GSM or CDMA. Set by GsmCdmaPhone.
     protected int mPhoneType;
     // RIL Version
     protected int mRilVersion = -1;
@@ -450,15 +452,6 @@ public abstract class BaseCommands implements CommandsInterface {
         }
     }
 
-    // For Samsung STK
-    public void setOnCatSendSmsResult(Handler h, int what, Object obj) {
-        mCatSendSmsResultRegistrant = new Registrant(h, what, obj);
-    }
-
-    public void unSetOnCatSendSmsResult(Handler h) {
-        mCatSendSmsResultRegistrant.clear();
-    }
-
     @Override
     public void setOnIccSmsFull(Handler h, int what, Object obj) {
         mIccSmsFullRegistrant = new Registrant (h, what, obj);
@@ -558,7 +551,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void unSetOnRestrictedStateChanged(Handler h) {
-        if (mRestrictedStateRegistrant != null && mRestrictedStateRegistrant.getHandler() != h) {
+        if (mRestrictedStateRegistrant != null && mRestrictedStateRegistrant.getHandler() == h) {
             mRestrictedStateRegistrant.clear();
             mRestrictedStateRegistrant = null;
         }
@@ -913,8 +906,34 @@ public abstract class BaseCommands implements CommandsInterface {
       }
     }
 
+    /**
+     * @hide
+     */
     @Override
-    public void setLocalCallHold(boolean lchStatus) {
+    public int getLteOnGsmMode() {
+        return TelephonyManager.getLteOnGsmModeStatic();
+    }
+
+    @Override
+    public void registerForAdnInitDone(Handler h, int what, Object obj) {
+        Registrant r = new Registrant (h, what, obj);
+        mAdnInitDoneRegistrants.add(r);
+    }
+
+    @Override
+    public void unregisterForAdnInitDone(Handler h) {
+        mAdnInitDoneRegistrants.remove(h);
+    }
+
+    @Override
+    public void registerForAdnRecordsInfo(Handler h, int what, Object obj) {
+        Registrant r = new Registrant (h, what, obj);
+        mAdnRecordsInfoRegistrants.add(r);
+    }
+
+    @Override
+    public void unregisterForAdnRecordsInfo(Handler h) {
+        mAdnRecordsInfoRegistrants.remove(h);
     }
 
     @Override
@@ -937,12 +956,12 @@ public abstract class BaseCommands implements CommandsInterface {
     @Override
     public void getAtr(Message response) {}
 
-    /**
-     * @hide
-     */
     @Override
-    public int getLteOnGsmMode() {
-        return TelephonyManager.getLteOnGsmModeStatic();
+    public void getAdnRecord(Message result) {
+    }
+
+    @Override
+    public void updateAdnRecord(SimPhoneBookAdnRecord adnRecordInfo, Message result) {
     }
 
 }

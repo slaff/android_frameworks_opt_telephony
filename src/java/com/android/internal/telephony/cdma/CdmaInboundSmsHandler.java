@@ -28,13 +28,15 @@ import com.android.internal.telephony.CellBroadcastHandler;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.InboundSmsHandler;
 import com.android.internal.telephony.InboundSmsTracker;
-import com.android.internal.telephony.PhoneBase;
+import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.SmsConstants;
 import com.android.internal.telephony.SmsMessageBase;
 import com.android.internal.telephony.SmsStorageMonitor;
+import com.android.internal.telephony.TelephonyComponentFactory;
 import com.android.internal.telephony.TelephonyProperties;
 import com.android.internal.telephony.WspTypeDecoder;
 import com.android.internal.telephony.cdma.sms.SmsEnvelope;
+import com.android.internal.util.HexDump;
 
 import java.util.Arrays;
 
@@ -56,7 +58,7 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
      * Create a new inbound SMS handler for CDMA.
      */
     private CdmaInboundSmsHandler(Context context, SmsStorageMonitor storageMonitor,
-            PhoneBase phone, CdmaSMSDispatcher smsDispatcher) {
+            Phone phone, CdmaSMSDispatcher smsDispatcher) {
         super("CdmaInboundSmsHandler", context, storageMonitor, phone,
                 CellBroadcastHandler.makeCellBroadcastHandler(context, phone));
         mSmsDispatcher = smsDispatcher;
@@ -81,7 +83,7 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
      * Wait for state machine to enter startup state. We can't send any messages until then.
      */
     public static CdmaInboundSmsHandler makeInboundSmsHandler(Context context,
-            SmsStorageMonitor storageMonitor, PhoneBase phone, CdmaSMSDispatcher smsDispatcher) {
+            SmsStorageMonitor storageMonitor, Phone phone, CdmaSMSDispatcher smsDispatcher) {
         CdmaInboundSmsHandler handler = new CdmaInboundSmsHandler(context, storageMonitor,
                 phone, smsDispatcher);
         handler.start();
@@ -211,7 +213,7 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
      * @param phone
      */
     @Override
-    protected void onUpdatePhoneObject(PhoneBase phone) {
+    protected void onUpdatePhoneObject(Phone phone) {
         super.onUpdatePhoneObject(phone);
         mCellBroadcastHandler.updatePhoneObject(phone);
     }
@@ -233,7 +235,7 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
             return CommandsInterface.CDMA_SMS_FAIL_CAUSE_INVALID_TELESERVICE_ID;
         case Intents.RESULT_SMS_GENERIC_ERROR:
         default:
-            return CommandsInterface.CDMA_SMS_FAIL_CAUSE_ENCODING_PROBLEM;
+            return CommandsInterface.CDMA_SMS_FAIL_CAUSE_OTHER_TERMINAL_PROBLEM;
         }
     }
 
@@ -255,8 +257,6 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
         }
         // update voice mail count in phone
         mPhone.setVoiceMessageCount(voicemailCount);
-        // store voice mail count in preferences
-        storeVoiceMailCount();
     }
 
     /**
@@ -313,10 +313,12 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
         byte[] userData = new byte[pdu.length - index];
         System.arraycopy(pdu, index, userData, 0, pdu.length - index);
 
-        InboundSmsTracker tracker = new InboundSmsTracker(userData, timestamp, destinationPort,
-                true, address, referenceNumber, segment, totalSegments, true);
+        InboundSmsTracker tracker = TelephonyComponentFactory.getInstance().makeInboundSmsTracker(
+                userData, timestamp, destinationPort, true, address, referenceNumber, segment,
+                totalSegments, true, HexDump.toHexString(userData));
 
-        return addTrackerToRawTableAndSendMessage(tracker);
+        // de-duping is done only for text messages
+        return addTrackerToRawTableAndSendMessage(tracker, false /* don't de-dup */);
     }
 
     /**

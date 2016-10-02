@@ -70,26 +70,6 @@ public class EncodedStringValue implements Cloneable {
         this(CharacterSets.DEFAULT_CHARSET, data);
     }
 
-    public EncodedStringValue(int charSet, String data) {
-        try {
-            mData = data.getBytes(CharacterSets.getMimeName(charSet));
-            mCharacterSet = charSet;
-        } catch (UnsupportedEncodingException e) {
-            if (LOCAL_LOGV) {
-                Log.v(TAG, e.getMessage(), e);
-            }
-            try {
-                // See getString(), it will use iso-8859-1 to encode if charset is null
-                // or unsupported.
-                mData = data.getBytes(CharacterSets.MIMENAME_ISO_8859_1);
-                mCharacterSet = CharacterSets.ISO_8859_1;
-            } catch (UnsupportedEncodingException e2) {
-                mData = data.getBytes(); // system default encoding
-                mCharacterSet = CharacterSets.ANY_CHARSET;
-            }
-        }
-    }
-
     public EncodedStringValue(String data) {
         try {
             mData = data.getBytes(CharacterSets.DEFAULT_CHARSET_NAME);
@@ -160,14 +140,12 @@ public class EncodedStringValue implements Cloneable {
                 String name = CharacterSets.getMimeName(mCharacterSet);
                 return new String(mData, name);
             } catch (UnsupportedEncodingException e) {
-                if (LOCAL_LOGV) {
-                    Log.v(TAG, e.getMessage(), e);
-                }
-                try {
-                    mCharacterSet = CharacterSets.ISO_8859_1;
+            	if (LOCAL_LOGV) {
+            		Log.v(TAG, e.getMessage(), e);
+            	}
+            	try {
                     return new String(mData, CharacterSets.MIMENAME_ISO_8859_1);
                 } catch (UnsupportedEncodingException e2) {
-                    mCharacterSet = CharacterSets.ANY_CHARSET;
                     return new String(mData); // system default encoding.
                 }
             }

@@ -26,13 +26,11 @@ import android.telephony.Rlog;
 
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.PhoneConstants;
-import com.android.internal.telephony.TelephonyPluginDelegate;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppState;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppType;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.PersoSubState;
 import com.android.internal.telephony.uicc.IccCardStatus.PinState;
 import com.android.internal.telephony.SubscriptionController;
-import com.android.internal.telephony.uicc.UICCConfig;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -57,9 +55,9 @@ public class UiccCardApplication {
     /**
      * These values are for authContext (parameter P2) per 3GPP TS 31.102 (Section 7.1.2)
      */
-    public static final int AUTH_CONTEXT_EAP_SIM = 128;
-    public static final int AUTH_CONTEXT_EAP_AKA = 129;
-    public static final int AUTH_CONTEXT_UNDEFINED = -1;
+    public static final int AUTH_CONTEXT_EAP_SIM = PhoneConstants.AUTH_CONTEXT_EAP_SIM;
+    public static final int AUTH_CONTEXT_EAP_AKA = PhoneConstants.AUTH_CONTEXT_EAP_AKA;
+    public static final int AUTH_CONTEXT_UNDEFINED = PhoneConstants.AUTH_CONTEXT_UNDEFINED;
 
     private final Object  mLock = new Object();
     private UiccCard      mUiccCard; //parent
@@ -89,7 +87,7 @@ public class UiccCardApplication {
     private RegistrantList mPinLockedRegistrants = new RegistrantList();
     private RegistrantList mNetworkLockedRegistrants = new RegistrantList();
 
-    UiccCardApplication(UiccCard uiccCard,
+    public UiccCardApplication(UiccCard uiccCard,
                         IccCardApplicationStatus as,
                         Context c,
                         CommandsInterface ci) {
@@ -117,7 +115,7 @@ public class UiccCardApplication {
         mCi.registerForNotAvailable(mHandler, EVENT_RADIO_UNAVAILABLE, null);
     }
 
-    void update (IccCardApplicationStatus as, Context c, CommandsInterface ci) {
+    public void update (IccCardApplicationStatus as, Context c, CommandsInterface ci) {
         synchronized (mLock) {
             if (mDestroyed) {
                 loge("Application updated after destroyed! Fix me!");
@@ -180,7 +178,7 @@ public class UiccCardApplication {
 
     private IccRecords createIccRecords(AppType type, Context c, CommandsInterface ci) {
         if (type == AppType.APPTYPE_USIM || type == AppType.APPTYPE_SIM) {
-            return TelephonyPluginDelegate.getInstance().makeSIMRecords(this, c, ci);
+            return new SIMRecords(this, c, ci);
         } else if (type == AppType.APPTYPE_RUIM || type == AppType.APPTYPE_CSIM){
             return new RuimRecords(this, c, ci);
         } else if (type == AppType.APPTYPE_ISIM) {
@@ -209,7 +207,7 @@ public class UiccCardApplication {
     }
 
     /** Assumes mLock is held. */
-    void queryFdn() {
+    public void queryFdn() {
         //This shouldn't change run-time. So needs to be called only once.
         int serviceClassX;
 
@@ -422,14 +420,6 @@ public class UiccCardApplication {
 
     public void registerForReady(Handler h, int what, Object obj) {
         synchronized (mLock) {
-            for (int i = mReadyRegistrants.size() - 1; i >= 0 ; i--) {
-                Registrant  r = (Registrant) mReadyRegistrants.get(i);
-                Handler rH = r.getHandler();
-
-                if (rH != null && rH == h) {
-                    return;
-                }
-            }
             Registrant r = new Registrant (h, what, obj);
             mReadyRegistrants.add(r);
             notifyReadyRegistrantsIfNeeded(r);
@@ -716,10 +706,10 @@ public class UiccCardApplication {
         }
     }
 
-    public void supplyNetworkDepersonalization (String pin, String type, Message onComplete) {
+    public void supplyNetworkDepersonalization (String pin, Message onComplete) {
         synchronized (mLock) {
-            if (DBG) log("Network Despersonalization: pin = **** , type = " + type);
-            mCi.supplyNetworkDepersonalization(pin, type, onComplete);
+            if (DBG) log("supplyNetworkDepersonalization");
+            mCi.supplyNetworkDepersonalization(pin, onComplete);
         }
     }
 
@@ -884,10 +874,6 @@ public class UiccCardApplication {
 
     protected UiccCard getUiccCard() {
         return mUiccCard;
-    }
-
-    public UICCConfig getUICCConfig() {
-        return mUiccCard.getUICCConfig();
     }
 
     private void log(String msg) {

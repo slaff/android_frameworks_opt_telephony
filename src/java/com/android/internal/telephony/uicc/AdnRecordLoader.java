@@ -35,15 +35,12 @@ public class AdnRecordLoader extends Handler {
     private IccFileHandler mFh;
     int mEf;
     int mExtensionEF;
-    String mPath;
     int mPendingExtLoads;
     Message mUserResponse;
     String mPin2;
 
     // For "load one"
     int mRecordNumber;
-
-    int mNumExtRec = -1;
 
     // for "load all"
     ArrayList<AdnRecord> mAdns; // only valid after EVENT_ADN_LOAD_ALL_DONE
@@ -59,9 +56,6 @@ public class AdnRecordLoader extends Handler {
     static final int EVENT_ADN_LOAD_ALL_DONE = 3;
     static final int EVENT_EF_LINEAR_RECORD_SIZE_DONE = 4;
     static final int EVENT_UPDATE_RECORD_DONE = 5;
-    static final int EVENT_UPDATE_EXT_RECORD_DONE = 6;
-    static final int EVENT_EFEXT1_LINEAR_RECORD_SIZE_DONE = 7;
-
 
     //***** Constructor
 
@@ -92,10 +86,9 @@ public class AdnRecordLoader extends Handler {
         mRecordNumber = recordNumber;
         mUserResponse = response;
 
-        mPath = getEFPath(ef);
-        mFh.loadEFLinearFixed(
-                ef, mPath, recordNumber, obtainMessage(EVENT_ADN_LOAD_DONE));
-
+       mFh.loadEFLinearFixed(
+               ef, getEFPath(ef), recordNumber,
+               obtainMessage(EVENT_ADN_LOAD_DONE));
     }
 
 
@@ -104,43 +97,19 @@ public class AdnRecordLoader extends Handler {
      * or response.obj.exception is set
      */
     public void
-    loadAllFromEF(int ef, int extensionEF, String path,
+    loadAllFromEF(int ef, int extensionEF,
                 Message response) {
         mEf = ef;
         mExtensionEF = extensionEF;
-        mPath = path;
         mUserResponse = response;
 
-        mFh.getEFLinearRecordSize( mExtensionEF, getEFPath(mExtensionEF),
-                obtainMessage(EVENT_EFEXT1_LINEAR_RECORD_SIZE_DONE, path));
-    }
-
-    /**
-     * Write adn to a EF SIM record
-     * It will get the record size of EF record and compose hex adn array
-     * then write the hex array to EF record
-     *
-     * @param adn is set with alphaTag and phone number
-     * @param ef EF fileid
-     * @param extensionEF extension EF fileid
-     * @param ef EF path
-     * @param recordNumber 1-based record index
-     * @param pin2 for CHV2 operations, must be null if pin2 is not needed
-     * @param response will be sent to its handler when completed
-     */
-    public void
-    updateEF(AdnRecord adn, int ef, int extensionEF, String path, int recordNumber,
-            String pin2, Message response) {
-        mEf = ef;
-        mExtensionEF = extensionEF;
-        mPath = path;
-        mRecordNumber = recordNumber;
-        mUserResponse = response;
-        mPin2 = pin2;
-
-        mFh.getEFLinearRecordSize(ef, path,
-                obtainMessage(EVENT_EF_LINEAR_RECORD_SIZE_DONE, adn));
-
+        /* If we are loading from EF_ADN, specifically
+         * specify the path as well, since, on some cards,
+         * the fileid is not unique.
+         */
+        mFh.loadEFLinearFixedAll(
+                ef, getEFPath(ef),
+                obtainMessage(EVENT_ADN_LOAD_ALL_DONE));
     }
 
     /**
@@ -158,48 +127,15 @@ public class AdnRecordLoader extends Handler {
     public void
     updateEF(AdnRecord adn, int ef, int extensionEF, int recordNumber,
             String pin2, Message response) {
-        updateEF(adn, ef, extensionEF, getEFPath(ef), recordNumber, pin2, response);
-    }
-
-    /**
-     * Write adn to a EF SIM record
-     * It will get the record size of EF record and compose hex adn array
-     * then write the hex array to EF record
-     *
-     * @param adn is set with alphaTag and phone number
-     * @param ef EF fileid
-     * @param extensionEF extension EF fileid
-     * @param recordNumber 1-based record index
-     * @param pin2 for CHV2 operations, must be null if pin2 is not needed
-     * @param extRecNum Free EF_EXT1 record.
-     * @param response will be sent to its handler when completed
-     */
-    public void
-    updateEF(AdnRecord adn, int ef, int extensionEF, int recordNumber,
-            String pin2, int extRecNum, Message response) {
-        byte extData[];
         mEf = ef;
         mExtensionEF = extensionEF;
         mRecordNumber = recordNumber;
         mUserResponse = response;
         mPin2 = pin2;
-
-        // Update the EXT1 record for number length greater than 20
-        // and less than or equal to 40.
-        if (extRecNum > 0 && adn.mNumber.length() > 20
-                && adn.mNumber.length() <= 40) {
-            extData = adn.buildExtData();
-            if (extData != null) {
-                Rlog.d(LOG_TAG, "updateEf : Update the ext rec : " +extRecNum);
-                mFh.updateEFLinearFixed(mExtensionEF, getEFPath(mExtensionEF),
-                        extRecNum, extData, mPin2, obtainMessage(
-                        EVENT_UPDATE_EXT_RECORD_DONE, extRecNum, 0, adn));
-            }
-        } else {
-            mFh.getEFLinearRecordSize( ef, getEFPath(ef),
+ 
+        mFh.getEFLinearRecordSize( ef, getEFPath(ef),
                 obtainMessage(EVENT_EF_LINEAR_RECORD_SIZE_DONE, adn));
-        }
-    }
+     }
 
     //***** Overridden from Handler
 
@@ -208,7 +144,6 @@ public class AdnRecordLoader extends Handler {
     handleMessage(Message msg) {
         AsyncResult ar;
         byte data[];
-        int[] extRecord = null;
         AdnRecord adn;
 
         try {
@@ -240,48 +175,11 @@ public class AdnRecordLoader extends Handler {
                                 ar.exception);
                     }
 
-                    if (mEf == IccConstants.EF_ADN) {
-                        mPath = getEFPath(mEf);
-                    }
 
-                    mFh.updateEFLinearFixed(mEf, mPath, mRecordNumber,
+                    mFh.updateEFLinearFixed(mEf, getEFPath(mEf), mRecordNumber,
                             data, mPin2, obtainMessage(EVENT_UPDATE_RECORD_DONE));
 
                     mPendingExtLoads = 1;
-
-                    break;
-
-                case EVENT_EFEXT1_LINEAR_RECORD_SIZE_DONE:
-                    ar = (AsyncResult)(msg.obj);
-                    String path = (String)(ar.userObj);
-
-                    if (ar.exception != null) {
-                        Rlog.d(LOG_TAG, "Exception occured while fetching record size for EFEXT1");
-                    } else {
-                        int[] extRecordSize = (int[])ar.result;
-                        // extRecordSize is int[3] array
-                        // int[0]  is the record length
-                        // int[1]  is the total length of the EF file
-                        // int[2]  is the number of records in the EF file
-                        // So int[0] * int[2] = int[1]
-                        if (extRecordSize.length != 3) {
-                            throw new RuntimeException("get wrong EF record size format",
-                                    ar.exception);
-                        }
-                        mNumExtRec = extRecordSize[2]; //Number of EXT records.
-                    }
-                    mPendingExtLoads = 1;
-
-                    /* If we are loading from EF_ADN, specifically
-                    * specify the path as well, since, on some cards,
-                    * the fileid is not unique.
-                    */
-                    if (mEf == IccConstants.EF_ADN) {
-                        path = getEFPath(mEf);
-                    }
-
-                    mFh.loadEFLinearFixedAll(mEf, path,
-                            obtainMessage(EVENT_ADN_LOAD_ALL_DONE));
 
                     break;
                 case EVENT_UPDATE_RECORD_DONE:
@@ -293,24 +191,6 @@ public class AdnRecordLoader extends Handler {
                     mPendingExtLoads = 0;
                     mResult = null;
                     break;
-
-                case EVENT_UPDATE_EXT_RECORD_DONE:
-                    ar = (AsyncResult)(msg.obj);
-                    adn = (AdnRecord) (ar.userObj);
-                    if (ar.exception != null) {
-                        adn.mExtRecord = 0xff;
-                        throw new RuntimeException("update EF adn record failed",
-                                ar.exception);
-                    } else {
-                        // Successfully written the EXT1 record.
-                        adn.mExtRecord = msg.arg1;
-                    }
-                    mPendingExtLoads = 1;
-
-                    mFh.getEFLinearRecordSize(mEf, getEFPath(mEf),
-                            obtainMessage(EVENT_EF_LINEAR_RECORD_SIZE_DONE, adn));
-                    break;
-
                 case EVENT_ADN_LOAD_DONE:
                     ar = (AsyncResult)(msg.obj);
                     data = (byte[])(ar.result);
@@ -337,7 +217,7 @@ public class AdnRecordLoader extends Handler {
                         mPendingExtLoads = 1;
 
                         mFh.loadEFLinearFixed(
-                            mExtensionEF, mPath, adn.mExtRecord,
+                            mExtensionEF, adn.mExtRecord,
                             obtainMessage(EVENT_EXT_RECORD_LOAD_DONE, adn));
                     }
                 break;
@@ -347,16 +227,23 @@ public class AdnRecordLoader extends Handler {
                     data = (byte[])(ar.result);
                     adn = (AdnRecord)(ar.userObj);
 
-                    if (ar.exception != null) {
-                        throw new RuntimeException("load failed", ar.exception);
+                    if (ar.exception == null) {
+                        Rlog.d(LOG_TAG,"ADN extension EF: 0x"
+                                + Integer.toHexString(mExtensionEF)
+                                + ":" + adn.mExtRecord
+                                + "\n" + IccUtils.bytesToHexString(data));
+
+                        adn.appendExtRecord(data);
                     }
+                    else {
+                        // If we can't get the rest of the number from EF_EXT1, rather than
+                        // providing the partial number, we clear the number since it's not
+                        // dialable anyway. Do not throw exception here otherwise the rest
+                        // of the good records will be dropped.
 
-                    Rlog.d(LOG_TAG,"ADN extension EF: 0x"
-                        + Integer.toHexString(mExtensionEF)
-                        + ":" + adn.mExtRecord
-                        + "\n" + IccUtils.bytesToHexString(data));
-
-                    adn.appendExtRecord(data);
+                        Rlog.e(LOG_TAG, "Failed to read ext record. Clear the number now.");
+                        adn.setNumber("");
+                    }
 
                     mPendingExtLoads--;
                     // result should have been set in
@@ -375,15 +262,7 @@ public class AdnRecordLoader extends Handler {
                     mResult = mAdns;
                     mPendingExtLoads = 0;
 
-                    // extRecord has the details of used/free EXT1 records.
-                    if (mNumExtRec != -1) {
-                        extRecord = new int[mNumExtRec];
-                        for (int i = 0; i < mNumExtRec; i++) {
-                            extRecord[i] = 0;
-                        }
-                    }
-
-                    for (int i = 0, s = datas.size() ; i < s ; i++) {
+                    for(int i = 0, s = datas.size() ; i < s ; i++) {
                         adn = new AdnRecord(mEf, 1 + i, datas.get(i));
                         mAdns.add(adn);
 
@@ -393,15 +272,12 @@ public class AdnRecordLoader extends Handler {
                             // ext record and append it
 
                             mPendingExtLoads++;
-                            // This record is already used.
-                            extRecord[adn.mExtRecord - 1] = 1;
 
                             mFh.loadEFLinearFixed(
-                                    mExtensionEF, mPath, adn.mExtRecord,
-                                    obtainMessage(EVENT_EXT_RECORD_LOAD_DONE, adn));
+                                mExtensionEF, adn.mExtRecord,
+                                obtainMessage(EVENT_EXT_RECORD_LOAD_DONE, adn));
                         }
                     }
-                    mUserResponse.obj = (int[])extRecord;
                 break;
             }
         } catch (RuntimeException exc) {
@@ -417,12 +293,11 @@ public class AdnRecordLoader extends Handler {
         }
 
         if (mUserResponse != null && mPendingExtLoads == 0) {
+            AsyncResult.forMessage(mUserResponse).result
+                = mResult;
 
-            AsyncResult.forMessage(mUserResponse, mResult, null);
             mUserResponse.sendToTarget();
             mUserResponse = null;
         }
     }
-
-
 }

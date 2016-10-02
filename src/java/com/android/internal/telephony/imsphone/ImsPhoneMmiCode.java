@@ -283,8 +283,7 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
     }
 
     static ImsPhoneMmiCode
-    newNetworkInitiatedUssd (String ussdMessage,
-                                boolean isUssdRequest, ImsPhone phone) {
+    newNetworkInitiatedUssd(String ussdMessage, boolean isUssdRequest, ImsPhone phone) {
         ImsPhoneMmiCode ret;
 
         ret = new ImsPhoneMmiCode(phone);
@@ -303,8 +302,7 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
         return ret;
     }
 
-    static ImsPhoneMmiCode newFromUssdUserInput(String ussdMessge,
-                                           ImsPhone phone) {
+    static ImsPhoneMmiCode newFromUssdUserInput(String ussdMessge, ImsPhone phone) {
         ImsPhoneMmiCode ret = new ImsPhoneMmiCode(phone);
 
         ret.mMessage = ussdMessge;
@@ -471,7 +469,7 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
         super(phone.getHandler().getLooper());
         mPhone = phone;
         mContext = phone.getContext();
-        mIccRecords = mPhone.mDefaultPhone.mIccRecords.get();
+        mIccRecords = mPhone.mDefaultPhone.getIccRecords();
     }
 
     //***** MmiCode implementation
@@ -616,7 +614,7 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
     /**
      * @return true if the Service Code is PIN/PIN2/PUK/PUK2-related
      */
-    boolean isPinPukCommand() {
+    public boolean isPinPukCommand() {
         return mSc != null && (mSc.equals(SC_PIN) || mSc.equals(SC_PIN2)
                               || mSc.equals(SC_PUK) || mSc.equals(SC_PUK2));
     }
@@ -701,7 +699,9 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
             try {
                 int serviceClass = siToServiceClass(mSib);
                 if (serviceClass != SERVICE_CLASS_NONE
-                        && serviceClass != SERVICE_CLASS_VOICE) {
+                        && serviceClass != SERVICE_CLASS_VOICE
+                        && serviceClass != (SERVICE_CLASS_PACKET
+                            + SERVICE_CLASS_DATA_SYNC)) {
                     return false;
                 }
                 return true;
@@ -742,7 +742,7 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
     }
 
     /** Process a MMI code or short code...anything that isn't a dialing number */
-    void
+    public void
     processCode () throws CallStateException {
         try {
             if (isShortCode()) {
@@ -751,7 +751,7 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
                 // These just get treated as USSD.
                 Rlog.d(LOG_TAG, "Sending short code '"
                        + mDialingNumber + "' over CS pipe.");
-                throw new CallStateException(ImsPhone.CS_FALLBACK);
+                throw new CallStateException(Phone.CS_FALLBACK);
             } else if (isServiceCodeCallForwarding(mSc)) {
                 Rlog.d(LOG_TAG, "is CF");
 
@@ -761,7 +761,7 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
                 int time = siToTime(mSic);
 
                 if (isInterrogate()) {
-                    mPhone.getCallForwardingOption(reason,
+                    mPhone.getCallForwardingOption(reason, serviceClass,
                             obtainMessage(EVENT_QUERY_CF_COMPLETE, this));
                 } else {
                     int cfAction;
@@ -963,7 +963,7 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
             } else if (mPoundString != null) {
                 Rlog.d(LOG_TAG, "Sending pound string '"
                        + mDialingNumber + "' over CS pipe.");
-                throw new CallStateException(ImsPhone.CS_FALLBACK);
+                throw new CallStateException(Phone.CS_FALLBACK);
             } else {
                 throw new RuntimeException ("Invalid or Unsupported MMI Code");
             }
@@ -1053,14 +1053,16 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
                 if ((ar.exception == null) && (msg.arg1 == 1)) {
                     boolean cffEnabled = (msg.arg2 == 1);
                     if (mIccRecords != null) {
-                        mPhone.setVoiceCallForwardingFlag(1, cffEnabled, mDialingNumber);
-                        mPhone.setCallForwardingPreference(cffEnabled);
-                        mPhone.setVideoCallForwardingPreference(cffEnabled);
+                        if(siToServiceClass(mSib) == (SERVICE_CLASS_PACKET
+                                    + SERVICE_CLASS_DATA_SYNC)) {
+                            mPhone.setVideoCallForwardingPreference(cffEnabled);
+                        } else {
+                            mPhone.setVoiceCallForwardingFlag(1, cffEnabled, mDialingNumber);
+                        }
                     }
                 }
 
                 onSetComplete(msg, ar);
-                mPhone.updateCallForwardStatus();
                 break;
 
             case EVENT_QUERY_CF_COMPLETE:
@@ -1309,8 +1311,6 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
             boolean cffEnabled = (info.status == 1);
             if (mIccRecords != null) {
                 mPhone.setVoiceCallForwardingFlag(1, cffEnabled, info.number);
-                Rlog.d(LOG_TAG, "makeCFQueryResultMessage cffEnabled  = "+cffEnabled);
-                mPhone.setCallForwardingPreference(cffEnabled);
             }
         }
 
@@ -1348,7 +1348,6 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
 
                 // Set unconditional CFF in SIM to false
                 if (mIccRecords != null) {
-                    mPhone.setCallForwardingPreference(false);
                     mPhone.setVoiceCallForwardingFlag(1, false, null);
                 }
             } else {

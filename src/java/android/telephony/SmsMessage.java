@@ -482,7 +482,7 @@ public class SmsMessage {
     public static SubmitPdu getSubmitPdu(String scAddress,
             String destinationAddress, String message, boolean statusReportRequested) {
         return getSubmitPdu(scAddress, destinationAddress, message, statusReportRequested,
-                SubscriptionManager.getDefaultSmsSubId());
+                SubscriptionManager.getDefaultSmsSubscriptionId());
     }
 
     /**
@@ -555,7 +555,7 @@ public class SmsMessage {
      * form or null if unavailable
      */
     public String getOriginatingAddress() {
-        return mWrappedSmsMessage != null ? mWrappedSmsMessage.getOriginatingAddress() : null;
+        return mWrappedSmsMessage.getOriginatingAddress();
     }
 
     /**
@@ -609,7 +609,7 @@ public class SmsMessage {
      * Returns the service centre timestamp in currentTimeMillis() format
      */
     public long getTimestampMillis() {
-        return mWrappedSmsMessage != null ? mWrappedSmsMessage.getTimestampMillis() : 0;
+        return mWrappedSmsMessage.getTimestampMillis();
     }
 
     /**
@@ -796,7 +796,7 @@ public class SmsMessage {
      */
     private static boolean useCdmaFormatForMoSms() {
         // IMS is registered with SMS support, check the SMS format supported
-        return useCdmaFormatForMoSms(SubscriptionManager.getDefaultSmsSubId());
+        return useCdmaFormatForMoSms(SubscriptionManager.getDefaultSmsSubscriptionId());
     }
 
     /**
@@ -824,7 +824,7 @@ public class SmsMessage {
      * @return true if current phone type is cdma, false otherwise.
      */
     private static boolean isCdmaVoice() {
-        return isCdmaVoice(SubscriptionManager.getDefaultSmsSubId());
+        return isCdmaVoice(SubscriptionManager.getDefaultSmsSubscriptionId());
     }
 
     /**
@@ -857,14 +857,16 @@ public class SmsMessage {
             Binder.restoreCallingIdentity(identity);
         }
 
-        for (NoEmsSupportConfig currentConfig : mNoEmsSupportConfigList) {
-            if (simOperator.startsWith(currentConfig.mOperatorNumber) &&
-                (TextUtils.isEmpty(currentConfig.mGid1) ||
-                (!TextUtils.isEmpty(currentConfig.mGid1)
-                && currentConfig.mGid1.equalsIgnoreCase(gid)))) {
-                return false;
+        if (!TextUtils.isEmpty(simOperator)) {
+            for (NoEmsSupportConfig currentConfig : mNoEmsSupportConfigList) {
+                if (simOperator.startsWith(currentConfig.mOperatorNumber) &&
+                        (TextUtils.isEmpty(currentConfig.mGid1) ||
+                                (!TextUtils.isEmpty(currentConfig.mGid1) &&
+                                        currentConfig.mGid1.equalsIgnoreCase(gid)))) {
+                    return false;
+                }
             }
-         }
+        }
         return true;
     }
 

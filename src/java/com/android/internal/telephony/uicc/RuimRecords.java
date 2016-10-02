@@ -27,6 +27,7 @@ import android.content.Context;
 import android.os.AsyncResult;
 import android.os.Message;
 import android.os.SystemProperties;
+import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.Rlog;
 import android.text.TextUtils;
@@ -41,12 +42,11 @@ import com.android.internal.telephony.SubscriptionController;
 import com.android.internal.telephony.cdma.sms.UserData;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppType;
 import com.android.internal.util.BitwiseInputStream;
-import com.android.internal.telephony.uicc.UICCConfig;
 
 /**
  * {@hide}
  */
-public final class RuimRecords extends IccRecords {
+public class RuimRecords extends IccRecords {
     static final String LOG_TAG = "RuimRecords";
 
     private boolean  mOtaCommited=false;
@@ -136,6 +136,7 @@ public final class RuimRecords extends IccRecords {
         mMncLength = UNINITIALIZED;
         log("setting0 mMncLength" + mMncLength);
         mIccId = null;
+        mFullIccId = null;
 
         mAdnCache.reset();
 
@@ -249,26 +250,23 @@ public final class RuimRecords extends IccRecords {
         return  builder.toString();
     }
 
+     /**
+     * Introduce Genreic API returns the 5 or 6 digit MCC/MNC
+     * of the operator that provided the RUIM card.
+     * Returns null of RUIM is not yet ready
+     */
+    @Override
+    public String getOperatorNumeric() {
+        return getRUIMOperatorNumeric();
+    }
 
     /**
      * Returns the 5 or 6 digit MCC/MNC of the operator that
      *  provided the RUIM card. Returns null of RUIM is not yet ready
      */
-    @Override
-    public String getOperatorNumeric() {
+    public String getRUIMOperatorNumeric() {
         if (mImsi == null) {
             return null;
-        }
-
-        if (SystemProperties.getBoolean("ro.telephony.get_imsi_from_sim", false)) {
-           String imsi = mParentApp.getUICCConfig().getImsi();
-           int mnclength = mParentApp.getUICCConfig().getMncLength();
-
-           // If we are LTE over CDMA (Verizon), then pull the correct info from SIMRecords
-            if (imsi != null) {
-                log("Overriding with Operator Numeric: " + imsi.substring(0, 3 + mnclength));
-                return imsi.substring(0, 3 + mnclength);
-            }
         }
 
         if (mMncLength != UNINITIALIZED && mMncLength != UNKNOWN) {
@@ -277,10 +275,6 @@ public final class RuimRecords extends IccRecords {
             return mImsi.substring(0, 3 + mMncLength);
         }
 
-        // Guess the MNC length based on the MCC if we don't
-        // have a valid value in ef[ad]
-
-        int mcc = Integer.parseInt(mImsi.substring(0,3));
         return mImsi.substring(0, 3 + CSIM_IMSI_MNC_LENGTH);
     }
 
@@ -694,8 +688,9 @@ public final class RuimRecords extends IccRecords {
                 }
 
                 mIccId = IccUtils.bcdToString(data, 0, data.length);
+                mFullIccId = IccUtils.bchToString(data, 0, data.length);
 
-                log("iccid: " + mIccId);
+                log("iccid: " + SubscriptionInfo.givePrintableIccid(mFullIccId));
 
             break;
 
@@ -777,14 +772,13 @@ public final class RuimRecords extends IccRecords {
 
         // FIXME: CSIM IMSI may not contain the MNC.
         if (false) {
-            String operator = getOperatorNumeric();
+            String operator = getRUIMOperatorNumeric();
             if (!TextUtils.isEmpty(operator)) {
                 log("onAllRecordsLoaded set 'gsm.sim.operator.numeric' to operator='" +
                         operator + "'");
                 log("update icc_operator_numeric=" + operator);
                 mTelephonyManager.setSimOperatorNumericForPhone(
                         mParentApp.getPhoneId(), operator);
-                setSpnFromConfig(operator);
             } else {
                 log("onAllRecordsLoaded empty 'gsm.sim.operator.numeric' skipping");
             }

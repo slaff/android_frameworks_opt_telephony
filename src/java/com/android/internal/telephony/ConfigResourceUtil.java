@@ -40,6 +40,24 @@ public class ConfigResourceUtil {
     public static final String TAG = "ConfigResourceUtil";
     public static String packageName = "com.android.frameworks.telresources";
 
+    private static Resources getResources(Context context) throws
+            NameNotFoundException, IllegalArgumentException {
+        if (context == null) {
+            Log.e(TAG, "context is null");
+            throw new IllegalArgumentException("context==null");
+        }
+
+        Resources res = context.getPackageManager().
+                getResourcesForApplication(packageName);
+
+        if (res == null) {
+            Log.e(TAG, "res is null");
+            throw new IllegalArgumentException("res==null");
+        }
+
+        return res;
+    }
+
     /**
      * Utility method that gets a boolean resource declared in
      * frameworks/opt/telephony/resources/res/values/config.xml. This
@@ -50,15 +68,16 @@ public class ConfigResourceUtil {
      */
     public static boolean getBooleanValue(Context context, String resourceName) {
         try {
-            Resources res = context.getPackageManager().getResourcesForApplication(packageName);
-            if (res == null)
-                Log.e(TAG, "res is null");
+            Resources res = getResources(context);
             int resId = res.getIdentifier(resourceName, "bool", packageName);
             boolean resValue = res.getBoolean(resId);
-            Log.v(TAG, "resourceName = " + resourceName + " resourceId = " + resId
-                    + "resourceValue = " + resValue);
+
+            Log.v(TAG, "resourceName = " + resourceName + " resourceId = " +
+                    resId + "resourceValue = " + resValue);
+
             return resValue;
-        } catch (NameNotFoundException | NotFoundException e) {
+        } catch (NameNotFoundException | NotFoundException |
+                IllegalArgumentException e) {
             throw new RuntimeException(e.getMessage());
         }
     }
@@ -73,15 +92,16 @@ public class ConfigResourceUtil {
      */
     public static int getIntValue(Context context, String resourceName) {
         try {
-            Resources res = context.getPackageManager().getResourcesForApplication(packageName);
-            if (res == null)
-                Log.e(TAG, "res is null");
+            Resources res = getResources(context);
             int resId = res.getIdentifier(resourceName, "integer", packageName);
             int resValue = res.getInteger(resId);
-            Log.v(TAG, "resourceName = " + resourceName + " resourceId = " + resId
-                    + "resourceValue = " + resValue);
+
+            Log.v(TAG, "resourceName = " + resourceName + " resourceId = " +
+                    resId + "resourceValue = " + resValue);
+
             return resValue;
-        } catch (NameNotFoundException | NotFoundException e) {
+        } catch (NameNotFoundException | NotFoundException |
+                IllegalArgumentException e) {
             throw new RuntimeException(e.getMessage());
         }
     }
@@ -96,17 +116,19 @@ public class ConfigResourceUtil {
      */
     public static String getStringValue(Context context, String resourceName) {
         try {
-            Resources res = context.getPackageManager().getResourcesForApplication(packageName);
-            if (res == null)
-                Log.e(TAG, "res is null");
+            Resources res = getResources(context);
             int resId = res.getIdentifier(resourceName, "string", packageName);
             String resValue = res.getString(resId);
-            Log.v(TAG, "resourceName = " + resourceName + " resourceId = " + resId
-                    + "resourceValue = " + resValue);
+
+            Log.v(TAG, "resourceName = " + resourceName + " resourceId = " +
+                    resId + "resourceValue = " + resValue);
+
             return resValue;
-        } catch (NameNotFoundException | NotFoundException e) {
+        } catch (NameNotFoundException | NotFoundException |
+                IllegalArgumentException e) {
             throw new RuntimeException(e.getMessage());
         }
+
     }
 
     /**
@@ -119,15 +141,16 @@ public class ConfigResourceUtil {
      */
     public static int[] getIntArray(Context context, String resourceName) {
         try {
-            Resources res = context.getPackageManager().getResourcesForApplication(packageName);
-            if (res == null)
-                Log.e(TAG, "res is null");
+            Resources res = getResources(context);
             int resId = res.getIdentifier(resourceName, "array", packageName);
             int[] resValue = res.getIntArray(resId);
-            Log.v(TAG, "resourceName = " + resourceName + " resourceId = " + resId
-                    + "resourceValue = " + Arrays.toString(resValue));
+
+            Log.v(TAG, "resourceName = " + resourceName + " resourceId = " +
+                    resId + "resourceValue = " + Arrays.toString(resValue));
+
             return resValue;
-        } catch (NameNotFoundException | NotFoundException e) {
+        } catch (NameNotFoundException | NotFoundException |
+                IllegalArgumentException e) {
             throw new RuntimeException(e.getMessage());
         }
     }
@@ -142,15 +165,17 @@ public class ConfigResourceUtil {
      */
     public static String[] getStringArray(Context context, String resourceName) {
         try {
-            Resources res = context.getPackageManager().getResourcesForApplication(packageName);
-            if (res == null)
-                Log.e(TAG, "res is null");
+            Resources res = getResources(context);
+
             int resId = res.getIdentifier(resourceName, "array", packageName);
             String[] resValue = res.getStringArray(resId);
-            Log.v(TAG, "resourceName = " + resourceName + " resourceId = " + resId
-                    + "resourceValue = " + Arrays.toString(resValue));
+
+            Log.v(TAG, "resourceName = " + resourceName + " resourceId = " +
+                    resId + "resourceValue = " + Arrays.toString(resValue));
+
             return resValue;
-        } catch (NameNotFoundException | NotFoundException e) {
+        } catch (NameNotFoundException | NotFoundException |
+                IllegalArgumentException e) {
             throw new RuntimeException(e.getMessage());
         }
     }

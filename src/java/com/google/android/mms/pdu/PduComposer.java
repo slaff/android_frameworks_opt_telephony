@@ -950,13 +950,10 @@ public class PduComposer {
                     name = part.getContentLocation();
 
                     if (null == name) {
-                        name = part.getContentId();
-
-                        if (null == name) {
-                            // At lease one of name, filename, Content-location, Content id
-                            // should be available.
-                            return PDU_COMPOSE_CONTENT_ERROR;
-                        }
+                        /* at lease one of name, filename, Content-location
+                         * should be available.
+                         */
+                        return PDU_COMPOSE_CONTENT_ERROR;
                     }
                 }
             }

@@ -292,13 +292,6 @@ public class UiccSmsController extends ISms.Stub {
     @Override
     public boolean isSmsSimPickActivityNeeded(int subId) {
         final Context context = ActivityThread.currentApplication().getApplicationContext();
-        boolean canCurrentAppHandleAlwaysAsk = SmsApplication.canSmsAppHandleAlwaysAsk(context);
-        if (!isSMSPromptEnabled() && canCurrentAppHandleAlwaysAsk) {
-            Rlog.d(LOG_TAG, "isSmsSimPickActivityNeeded: false, sms prompt disabled.");
-            // user knows best
-            return false;
-        }
-
         TelephonyManager telephonyManager =
                 (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
         List<SubscriptionInfo> subInfoList;
@@ -322,17 +315,11 @@ public class UiccSmsController extends ISms.Stub {
 
             // If reached here and multiple SIMs and subs present, sms sim pick activity is needed
             if (subInfoLength > 0 && telephonyManager.getSimCount() > 1) {
-                final SubscriptionInfoUpdater subscriptionInfoUpdater
-                        = PhoneFactory.getSubscriptionInfoUpdater();
-                if (subscriptionInfoUpdater != null) {
-                    // use the *real* inserted sim count if we can
-                    return subscriptionInfoUpdater.getInsertedSimCount() > 1;
-                }
                 return true;
             }
         }
 
-        return !canCurrentAppHandleAlwaysAsk;
+        return false;
     }
 
     @Override
@@ -377,7 +364,7 @@ public class UiccSmsController extends ISms.Stub {
 
         try {
             return (IccSmsInterfaceManager)
-                ((PhoneProxy)mPhone[(int)phoneId]).getIccSmsInterfaceManager();
+                ((Phone)mPhone[(int)phoneId]).getIccSmsInterfaceManager();
         } catch (NullPointerException e) {
             Rlog.e(LOG_TAG, "Exception is :"+e.toString()+" For subscription :"+subId );
             e.printStackTrace();
@@ -402,13 +389,6 @@ public class UiccSmsController extends ISms.Stub {
     @Override
     public boolean isSMSPromptEnabled() {
         return PhoneFactory.isSMSPromptEnabled();
-    }
-
-    /**
-     * Set SMS prompt property, enabled ornot
-     **/
-    public void setSMSPromptEnabled(boolean bool) {
-        PhoneFactory.setSMSPromptEnabled(bool);
     }
 
     @Override

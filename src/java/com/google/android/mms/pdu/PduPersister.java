@@ -43,6 +43,7 @@ import android.provider.Telephony.Threads;
 import android.provider.Telephony.Mms.Addr;
 import android.provider.Telephony.Mms.Part;
 import android.provider.Telephony.MmsSms.PendingMessages;
+import android.telephony.SubscriptionManager;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
@@ -440,8 +441,8 @@ public class PduPersister {
                     if (ContentType.TEXT_PLAIN.equals(type) || ContentType.APP_SMIL.equals(type)
                             || ContentType.TEXT_HTML.equals(type)) {
                         String text = c.getString(PART_COLUMN_TEXT);
-                        // we will use default encoding when charset is null or not supported
-                        byte [] blob = getBlob(getCharsetName(charset) != null, charset, text);
+                        byte [] blob = new EncodedStringValue(text != null ? text : "")
+                            .getTextString();
                         baos.write(blob, 0, blob.length);
                     } else {
 
@@ -479,32 +480,6 @@ public class PduPersister {
         }
 
         return parts;
-    }
-
-    private String getCharsetName(Integer charset) {
-        if (charset == null || (charset == 0)) {
-            return null;
-        }
-        String charsetName = null;
-        try {
-            charsetName = CharacterSets.getMimeName(charset);
-        } catch (UnsupportedEncodingException e) {
-            Log.d(TAG, "charset " + charset + " is not supported");
-        }
-        return charsetName;
-
-    }
-
-    private byte [] getBlob(boolean hasCharset, Integer charset, String text) {
-        byte [] blob = null;
-        if (hasCharset) {
-            blob = new EncodedStringValue(charset, text != null ? text : "")
-                .getTextString();
-        } else {
-            blob = new EncodedStringValue(text != null ? text : "")
-                .getTextString();
-        }
-        return blob;
     }
 
     private void loadAddress(long msgId, PduHeaders headers) {
@@ -792,16 +767,6 @@ public class PduPersister {
         return res;
     }
 
-    private EncodedStringValue getEncodedStringValue(int charset, byte[] data) {
-        EncodedStringValue ev = null;
-        if (getCharsetName(charset) != null) {
-            ev = new EncodedStringValue(charset, data);
-        } else {
-            ev = new EncodedStringValue(data);
-        }
-        return ev;
-    }
-
     /**
      * Save data of the part into storage. The source data may be given
      * by a byte[] or a Uri. If it's a byte[], directly save it
@@ -833,22 +798,8 @@ public class PduPersister {
                 ContentValues cv = new ContentValues();
                 if (data == null) {
                     data = new String("").getBytes(CharacterSets.DEFAULT_CHARSET_NAME);
-                    cv.put(Telephony.Mms.Part.TEXT, new EncodedStringValue(data).getString());
-                    Log.w(TAG, "Part data is null. contentType: " + contentType);
-                } else {
-                    // we will use default encoding when charset is 0 or not supported
-                    int charset = part.getCharset();
-                    if (charset == CharacterSets.US_ASCII
-                            && ContentType.APP_SMIL.equals(contentType)) {
-                        charset = CharacterSets.UTF_8;
-                    }
-
-                    EncodedStringValue ev = getEncodedStringValue(charset, data);
-
-                    // Update the charset in database, make sure part have the right charset.
-                    cv.put(Telephony.Mms.Part.CHARSET, ev.getCharacterSet());
-                    cv.put(Telephony.Mms.Part.TEXT, ev.getString());
                 }
+                cv.put(Telephony.Mms.Part.TEXT, new EncodedStringValue(data).getString());
                 if (mContentResolver.update(uri, cv, null, null) != 1) {
                     throw new MmsException("unable to update " + uri.toString());
                 }
@@ -1529,13 +1480,31 @@ public class PduPersister {
         if (excludeMyNumber && array.length == 1) {
             return;
         }
-        String myNumber = excludeMyNumber ? mTelephonyManager.getLine1Number() : null;
+        final SubscriptionManager subscriptionManager = SubscriptionManager.from(mContext);
+        final Set<String> myPhoneNumbers = new HashSet<String>();
+        if (excludeMyNumber) {
+            // Build a list of my phone numbers from the various sims.
+            for (int subid : subscriptionManager.getActiveSubscriptionIdList()) {
+                final String myNumber = mTelephonyManager.getLine1Number(subid);
+                if (myNumber != null) {
+                    myPhoneNumbers.add(myNumber);
+                }
+            }
+        }
+
         for (EncodedStringValue v : array) {
             if (v != null) {
-                String number = v.getString();
-                if ((myNumber == null || !PhoneNumberUtils.compare(number, myNumber)) &&
-                        !recipients.contains(number)) {
-                    // Only add numbers which aren't my own number.
+                final String number = v.getString();
+                if (excludeMyNumber) {
+                    for (final String myNumber : myPhoneNumbers) {
+                        if (!PhoneNumberUtils.compare(number, myNumber)
+                                && !recipients.contains(number)) {
+                            // Only add numbers which aren't my own number.
+                            recipients.add(number);
+                            break;
+                        }
+                    }
+                } else if (!recipients.contains(number)){
                     recipients.add(number);
                 }
             }
@@ -1581,7 +1550,7 @@ public class PduPersister {
      */
     public static String toIsoString(byte[] bytes) {
         try {
-            return new String(bytes, CharacterSets.MIMENAME_UTF_8);
+            return new String(bytes, CharacterSets.MIMENAME_ISO_8859_1);
         } catch (UnsupportedEncodingException e) {
             // Impossible to reach here!
             Log.e(TAG, "ISO_8859_1 must be supported!", e);
@@ -1594,7 +1563,7 @@ public class PduPersister {
      */
     public static byte[] getBytes(String data) {
         try {
-            return data.getBytes(CharacterSets.MIMENAME_UTF_8);
+            return data.getBytes(CharacterSets.MIMENAME_ISO_8859_1);
         } catch (UnsupportedEncodingException e) {
             // Impossible to reach here!
             Log.e(TAG, "ISO_8859_1 must be supported!", e);
@@ -1606,12 +1575,8 @@ public class PduPersister {
      * Remove all objects in the temporary path.
      */
     public void release() {
-        try {
-            Uri uri = Uri.parse(TEMPORARY_DRM_OBJECT_URI);
-            SqliteWrapper.delete(mContext, mContentResolver, uri, null, null);
-        } catch (android.database.sqlite.SQLiteDiskIOException e) {
-            e.printStackTrace();
-        }
+        Uri uri = Uri.parse(TEMPORARY_DRM_OBJECT_URI);
+        SqliteWrapper.delete(mContext, mContentResolver, uri, null, null);
     }
 
     /**

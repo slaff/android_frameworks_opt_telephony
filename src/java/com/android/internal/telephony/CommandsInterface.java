@@ -21,6 +21,7 @@ import com.android.internal.telephony.dataconnection.DataProfile;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
 import com.android.internal.telephony.RadioCapability;
 import com.android.internal.telephony.uicc.IccCardStatus;
+import com.android.internal.telephony.uicc.SimPhoneBookAdnRecord;
 
 import android.os.Message;
 import android.os.Handler;
@@ -773,7 +774,7 @@ public interface CommandsInterface {
 
     void changeBarringPassword(String facility, String oldPwd, String newPwd, Message result);
 
-    void supplyNetworkDepersonalization(String netpin, String type, Message result);
+    void supplyNetworkDepersonalization(String netpin, Message result);
 
     /**
      *  returned message
@@ -1595,10 +1596,9 @@ public interface CommandsInterface {
      * object containing the connection information.
      *
      * @param radioTechnology
-     *            indicates whether to setup connection on radio technology CDMA
-     *            (0) or GSM/UMTS (1)
+     *            Radio technology to use. Values is one of RIL_RADIO_TECHNOLOGY_*
      * @param profile
-     *            Profile Number or NULL to indicate default profile
+     *            Profile Number. Values is one of DATA_PROFILE_*
      * @param apn
      *            the APN to connect to if radio technology is GSM/UMTS.
      *            Otherwise null for CDMA.
@@ -1614,8 +1614,8 @@ public interface CommandsInterface {
      * @param result
      *            Callback message
      */
-    public void setupDataCall(String radioTechnology, String profile,
-            String apn, String user, String password, String authType,
+    public void setupDataCall(int radioTechnology, int profile,
+            String apn, String user, String password, int authType,
             String protocol, Message result);
 
     /**
@@ -1658,7 +1658,7 @@ public interface CommandsInterface {
 
     /**
      *  Requests the radio's system selection module to exit emergency callback mode.
-     *  This function should only be called from CDMAPHone.java.
+     *  This function should only be called from for CDMA.
      *
      * @param response callback message
      */
@@ -2038,34 +2038,49 @@ public interface CommandsInterface {
     public void getModemActivityInfo(Message result);
 
     /**
+     * Request the ADN record of all activated UICC applications
      *
-     * Set MAX transmit power state
+     * @param result Callback message containing the count of ADN valid record.
+     */
+    public void getAdnRecord(Message result);
+
+    /**
+     * Request to add/delete/update the ADN record
      *
-     * @param response Callback message contains the status from modem
+     * @param adnRecordInfo adn record information to be updated
+     * @param result Callback message containing the ADN record index.
      */
-     public void setMaxTransmitPower(int state, Message response);
+    public void updateAdnRecord(SimPhoneBookAdnRecord adnRecordInfo, Message result);
 
     /**
-     * Request to update the current local call hold state.
-     * @param lchStatus, true if call is in lch state
+     * Registers the handler when ADN has already init done.
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
      */
-    public void setLocalCallHold(boolean lchStatus);
+    public void registerForAdnInitDone(Handler h, int what, Object obj);
 
     /**
-     * @hide
-     * CM-specific: Ask the RIL about the presence of back-compat flags
+     * Unregister for notifications when ADN has already init done.
+     *
+     * @param h Handler to be removed from the registrant list.
      */
-    public boolean needsOldRilFeature(String feature);
+    public void unregisterForAdnInitDone(Handler h);
 
     /**
-     * @hide
-     * samsung stk service implementation - set up registrant for sending
-     * sms send result from modem(RIL) to catService
+     * Registers the handler when a group of ADN record is notified.
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
      */
-    void setOnCatSendSmsResult(Handler h, int what, Object obj);
+    public void registerForAdnRecordsInfo(Handler h, int what, Object obj);
 
     /**
-     * @hide
+     * Unregister for notifications when a group of ADN record is notified.
+     *
+     * @param h Handler to be removed from the registrant list.
      */
-    void unSetOnCatSendSmsResult(Handler h);
+    public void unregisterForAdnRecordsInfo(Handler h);
 }

@@ -32,6 +32,7 @@ import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
+import android.text.TextUtils;
 
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.IccCard;
@@ -43,6 +44,7 @@ import com.android.internal.telephony.TelephonyIntents;
 import com.android.internal.telephony.IccCardConstants.State;
 import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.SubscriptionController;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppState;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.PersoSubState;
@@ -171,7 +173,6 @@ public class IccCardProxy extends Handler implements IccCard {
      */
     private void updateQuietMode() {
         synchronized (mLock) {
-            boolean oldQuietMode = mQuietMode;
             boolean newQuietMode;
             int cdmaSource = Phone.CDMA_SUBSCRIPTION_UNKNOWN;
             if (mCurrentAppType == UiccController.APP_FAM_3GPP) {
@@ -226,21 +227,11 @@ public class IccCardProxy extends Handler implements IccCard {
                 }
                 break;
             case EVENT_ICC_CHANGED:
-                // For CDMA Nv device, should not handle Icc change since no SIM card.
-                if (mQuietMode) {
-                    log("QuietMode: ignore ICC changed ");
-                    return;
-                }
                 if (mInitialized) {
                     updateIccAvailability();
                 }
                 break;
             case EVENT_ICC_ABSENT:
-                // For CDMA Nv device, should not handle Icc absent since no SIM Card.
-                if (mQuietMode) {
-                    log("QuietMode: ignore SIM absent ");
-                    return;
-                }
                 mAbsentRegistrants.notifyRegistrants();
                 setExternalState(State.ABSENT);
                 break;
@@ -253,11 +244,11 @@ public class IccCardProxy extends Handler implements IccCard {
             case EVENT_RECORDS_LOADED:
                 // Update the MCC/MNC.
                 if (mIccRecords != null) {
-                    String operator = mIccRecords.getOperatorNumeric();
+                    Phone currentPhone = PhoneFactory.getPhone(mPhoneId);
+                    String operator = currentPhone.getOperatorNumeric();
                     log("operator=" + operator + " mPhoneId=" + mPhoneId);
 
-                    if (operator != null) {
-                        log("update icc_operator_numeric=" + operator);
+                    if (!TextUtils.isEmpty(operator)) {
                         mTelephonyManager.setSimOperatorNumericForPhone(mPhoneId, operator);
                         String countryCode = operator.substring(0,3);
                         if (countryCode != null) {
@@ -768,10 +759,10 @@ public class IccCardProxy extends Handler implements IccCard {
     }
 
     @Override
-    public void supplyNetworkDepersonalization(String pin, String type, Message onComplete) {
+    public void supplyNetworkDepersonalization(String pin, Message onComplete) {
         synchronized (mLock) {
             if (mUiccApplication != null) {
-                mUiccApplication.supplyNetworkDepersonalization(pin, type, onComplete);
+                mUiccApplication.supplyNetworkDepersonalization(pin, onComplete);
             } else if (onComplete != null) {
                 Exception e = new RuntimeException("CommandsInterface is not set.");
                 AsyncResult.forMessage(onComplete).exception = e;

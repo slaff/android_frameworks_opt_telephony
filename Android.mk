@@ -24,8 +24,9 @@ LOCAL_SRC_FILES := $(call all-java-files-under, src/java) \
 	$(call all-Iaidl-files-under, src/java) \
 	$(call all-logtags-files-under, src/java)
 
-LOCAL_JAVA_LIBRARIES := voip-common ims-common
-LOCAL_REQUIRED_MODULES := telresources
+LOCAL_JAVA_LIBRARIES := voip-common ims-common telephony-ext
+LOCAL_STATIC_JAVA_LIBRARIES := ims-ext-common
+
 
 ifneq ($(BOARD_RIL_CLASS),)
 LOCAL_SRC_FILES += $(call find-other-java-files,$(BOARD_RIL_CLASS))

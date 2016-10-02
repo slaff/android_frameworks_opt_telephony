@@ -24,16 +24,13 @@ import android.os.AsyncResult;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
-import android.os.SystemClock;
-import android.telephony.DataConnectionRealTimeInfo;
 import android.telephony.TelephonyManager;
 import android.telephony.PhoneStateListener;
 import android.telephony.Rlog;
 
 import com.android.internal.telephony.DctConstants;
-import com.android.internal.telephony.PhoneBase;
+import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
-import com.android.internal.telephony.dataconnection.DataConnection.ConnectionParams;
 import com.android.internal.telephony.dataconnection.DataConnection.UpdateLinkPropertyResult;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
@@ -52,8 +49,8 @@ public class DcController extends StateMachine {
     private static final boolean DBG = true;
     private static final boolean VDBG = false;
 
-    private PhoneBase mPhone;
-    private DcTrackerBase mDct;
+    private Phone mPhone;
+    private DcTracker mDct;
     private DcTesterDeactivateAll mDcTesterDeactivateAll;
 
     // package as its used by Testing code
@@ -72,9 +69,6 @@ public class DcController extends StateMachine {
     static final int DATA_CONNECTION_ACTIVE_PH_LINK_UP = 2;
     static final int DATA_CONNECTION_ACTIVE_UNKNOWN = Integer.MAX_VALUE;
 
-    // One of the DATA_CONNECTION_ACTIVE_XXX values
-    int mOverallDataConnectionActiveState = DATA_CONNECTION_ACTIVE_UNKNOWN;
-
     private DccDefaultState mDccDefaultState = new DccDefaultState();
 
     TelephonyManager mTelephonyManager;
@@ -92,7 +86,7 @@ public class DcController extends StateMachine {
      * @param dct the DataConnectionTracker associated with Dcc
      * @param handler defines the thread/looper to be used with Dcc
      */
-    private DcController(String name, PhoneBase phone, DcTrackerBase dct,
+    private DcController(String name, Phone phone, DcTracker dct,
             Handler handler) {
         super(name, handler);
         setLogRecSize(300);
@@ -117,7 +111,7 @@ public class DcController extends StateMachine {
         }
     }
 
-    static DcController makeDcc(PhoneBase phone, DcTrackerBase dct, Handler handler) {
+    public static DcController makeDcc(Phone phone, DcTracker dct, Handler handler) {
         DcController dcc = new DcController("Dcc", phone, dct, handler);
         dcc.start();
         return dcc;
@@ -138,7 +132,7 @@ public class DcController extends StateMachine {
         mDcListAll.remove(dc);
     }
 
-    void addActiveDcByCid(DataConnection dc) {
+    public void addActiveDcByCid(DataConnection dc) {
         if (DBG && dc.mCid < 0) {
             log("addActiveDcByCid dc.mCid < 0 dc=" + dc);
         }
@@ -265,32 +259,29 @@ public class DcController extends StateMachine {
                     if (DBG) log("onDataStateChanged: Found ConnId=" + newState.cid
                             + " newState=" + newState.toString());
                     if (newState.active == DATA_CONNECTION_ACTIVE_PH_LINK_INACTIVE) {
-                        if (mDct.mIsCleanupRequired) {
+                        if (mDct.isCleanupRequired.get()) {
                             apnsToCleanup.addAll(dc.mApnContexts.keySet());
-                            mDct.mIsCleanupRequired = false;
+                            mDct.isCleanupRequired.set(false);
                         } else {
                             DcFailCause failCause = DcFailCause.fromInt(newState.status);
-                            if (DBG) log("onDataStateChanged: inactive failCause=" + failCause);
                             if (failCause.isRestartRadioFail()) {
-                                if (DBG) log("onDataStateChanged: X restart radio");
+                                if (DBG) {
+                                    log("onDataStateChanged: X restart radio, failCause="
+                                            + failCause);
+                                }
                                 mDct.sendRestartRadio();
                             } else if (mDct.isPermanentFail(failCause)) {
-                                if (DBG) log("onDataStateChanged: inactive, add to cleanup list");
+                                if (DBG) {
+                                    log("onDataStateChanged: inactive, add to cleanup list. "
+                                            + "failCause=" + failCause);
+                                }
                                 apnsToCleanup.addAll(dc.mApnContexts.keySet());
                             } else {
-                                for (ConnectionParams cp : dc.mApnContexts.values()) {
-                                    ApnContext apnContext = cp.mApnContext;
-                                    if (apnContext.isEnabled()) {
-                                        if (DBG) {
-                                            log("onDataStateChanged: inactive, add to retry list");
-                                        }
-                                        dcsToRetry.add(dc);
-                                        break;
-                                    } else {
-                                        apnsToCleanup.add(apnContext);
-                                        if (DBG) log("APN is disabled, not retrying.");
-                                    }
+                                if (DBG) {
+                                    log("onDataStateChanged: inactive, add to retry list. "
+                                            + "failCause=" + failCause);
                                 }
+                                dcsToRetry.add(dc);
                             }
                         }
                     } else {
@@ -364,8 +355,6 @@ public class DcController extends StateMachine {
                 }
             }
 
-            int newOverallDataConnectionActiveState = mOverallDataConnectionActiveState;
-
             if (isAnyDataCallDormant && !isAnyDataCallActive) {
                 // There is no way to indicate link activity per APN right now. So
                 // Link Activity will be considered dormant only when all data calls
@@ -376,7 +365,6 @@ public class DcController extends StateMachine {
                     log("onDataStateChanged: Data Activity updated to DORMANT. stopNetStatePoll");
                 }
                 mDct.sendStopNetStatPoll(DctConstants.Activity.DORMANT);
-                newOverallDataConnectionActiveState = DATA_CONNECTION_ACTIVE_PH_LINK_DORMANT;
             } else {
                 if (DBG) {
                     log("onDataStateChanged: Data Activity updated to NONE. " +
@@ -384,35 +372,9 @@ public class DcController extends StateMachine {
                             " isAnyDataCallDormant = " + isAnyDataCallDormant);
                 }
                 if (isAnyDataCallActive) {
-                    newOverallDataConnectionActiveState = DATA_CONNECTION_ACTIVE_PH_LINK_UP;
                     mDct.sendStartNetStatPoll(DctConstants.Activity.NONE);
-                } else {
-                    newOverallDataConnectionActiveState = DATA_CONNECTION_ACTIVE_PH_LINK_INACTIVE;
                 }
             }
-
-            // TODO: b/23319188 Enable/Disable this based on enable/disable of dormancy indications 
-            //if (mOverallDataConnectionActiveState != newOverallDataConnectionActiveState) {
-            //    mOverallDataConnectionActiveState = newOverallDataConnectionActiveState;
-            //    long time = SystemClock.elapsedRealtimeNanos();
-            //    int dcPowerState;
-            //    switch (mOverallDataConnectionActiveState) {
-            //        case DATA_CONNECTION_ACTIVE_PH_LINK_INACTIVE:
-            //        case DATA_CONNECTION_ACTIVE_PH_LINK_DORMANT:
-            //            dcPowerState = DataConnectionRealTimeInfo.DC_POWER_STATE_LOW;
-            //            break;
-            //        case DATA_CONNECTION_ACTIVE_PH_LINK_UP:
-            //            dcPowerState = DataConnectionRealTimeInfo.DC_POWER_STATE_HIGH;
-            //            break;
-            //        default:
-            //            dcPowerState = DataConnectionRealTimeInfo.DC_POWER_STATE_UNKNOWN;
-            //            break;
-            //    }
-            //    DataConnectionRealTimeInfo dcRtInfo =
-            //            new DataConnectionRealTimeInfo(time , dcPowerState);
-            //    log("onDataStateChanged: notify DcRtInfo changed dcRtInfo=" + dcRtInfo);
-            //    mPhone.notifyDataConnectionRealTimeInfo(dcRtInfo); 
-            //}
 
             if (DBG) {
                 lr("onDataStateChanged: dcsToRetry=" + dcsToRetry
@@ -430,7 +392,7 @@ public class DcController extends StateMachine {
                 dc.sendMessage(DataConnection.EVENT_LOST_CONNECTION, dc.mTag);
             }
 
-            if (DBG) log("onDataStateChanged: X");
+            if (VDBG) log("onDataStateChanged: X");
         }
     }
 

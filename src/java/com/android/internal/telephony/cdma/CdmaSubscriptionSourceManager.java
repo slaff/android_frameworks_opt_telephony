@@ -52,7 +52,6 @@ public class CdmaSubscriptionSourceManager extends Handler {
 
     // ***** Instance Variables
     private CommandsInterface mCi;
-    private Context mContext;
     private RegistrantList mCdmaSubscriptionSourceChangedRegistrants = new RegistrantList();
 
     // Type of CDMA subscription source
@@ -60,7 +59,6 @@ public class CdmaSubscriptionSourceManager extends Handler {
 
     // Constructor
     private CdmaSubscriptionSourceManager(Context context, CommandsInterface ci) {
-        mContext = context;
         mCi = ci;
         mCi.registerForCdmaSubscriptionChanged(this, EVENT_CDMA_SUBSCRIPTION_SOURCE_CHANGED, null);
         mCi.registerForOn(this, EVENT_RADIO_ON, null);
@@ -197,10 +195,7 @@ public class CdmaSubscriptionSourceManager extends Handler {
                         null, null));
             }
         } else {
-            // GET_CDMA_SUBSCRIPTION is returning Failure. Probably
-            // because modem created GSM Phone. If modem created
-            // GSMPhone, then PhoneProxy will trigger a change in
-            // Phone objects and this object will be destroyed.
+            // GET_CDMA_SUBSCRIPTION is returning Failure. Probably because modem created GSM Phone.
             logw("Unable to get CDMA Subscription Source, Exception: " + ar.exception
                     + ", result: " + ar.result);
         }

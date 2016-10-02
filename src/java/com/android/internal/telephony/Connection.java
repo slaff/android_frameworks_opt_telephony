@@ -20,6 +20,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.telecom.ConferenceParticipant;
+import android.telephony.DisconnectCause;
 import android.telephony.Rlog;
 import android.util.Log;
 
@@ -38,15 +39,45 @@ public abstract class Connection {
         void onPostDialChar(char c);
     }
 
-   /**
+    /**
      * Capabilities that will be mapped to telecom connection
      * capabilities.
      */
     public static class Capability {
+
+        /**
+         * For an IMS video call, indicates that the local side of the call supports downgrading
+         * from a video call to an audio-only call.
+         */
         public static final int SUPPORTS_DOWNGRADE_TO_VOICE_LOCAL = 0x00000001;
+
+        /**
+         * For an IMS video call, indicates that the peer supports downgrading to an audio-only
+         * call.
+         */
         public static final int SUPPORTS_DOWNGRADE_TO_VOICE_REMOTE = 0x00000002;
+
+        /**
+         * For an IMS call, indicates that the call supports video locally.
+         */
         public static final int SUPPORTS_VT_LOCAL_BIDIRECTIONAL = 0x00000004;
+
+        /**
+         * For an IMS call, indicates that the peer supports video.
+         */
         public static final int SUPPORTS_VT_REMOTE_BIDIRECTIONAL = 0x00000008;
+
+        /**
+         * Indicates that the connection is an external connection (e.g. an instance of the class
+         * {@link com.android.internal.telephony.imsphone.ImsExternalConnection}.
+         */
+        public static final int IS_EXTERNAL_CONNECTION = 0x00000010;
+
+        /**
+         * Indicates that this external connection can be pulled from the remote device to the
+         * local device.
+         */
+        public static final int IS_PULLABLE = 0x00000020;
     }
 
     /**
@@ -65,6 +96,7 @@ public abstract class Connection {
         public void onMultipartyStateChanged(boolean isMultiParty);
         public void onConferenceMergedFailed();
         public void onExtrasChanged(Bundle extras);
+        public void onExitedEcmMode();
     }
 
     /**
@@ -92,10 +124,18 @@ public abstract class Connection {
         public void onConferenceMergedFailed() {}
         @Override
         public void onExtrasChanged(Bundle extras) {}
+        @Override
+        public void onExitedEcmMode() {}
     }
 
     public static final int AUDIO_QUALITY_STANDARD = 1;
     public static final int AUDIO_QUALITY_HIGH_DEFINITION = 2;
+
+    /**
+     * The telecom internal call ID associated with this connection.  Only to be used for debugging
+     * purposes.
+     */
+    private String mTelecomCallId;
 
     //Caller Name Display
     protected String mCnapName;
@@ -126,6 +166,12 @@ public abstract class Connection {
     protected boolean mNumberConverted = false;
     protected String mConvertedNumber;
 
+    protected String mPostDialString;      // outgoing calls only
+    protected int mNextPostDialChar;       // index into postDialString
+
+    protected int mCause = DisconnectCause.NOT_DISCONNECTED;
+    protected PostDialState mPostDialState = PostDialState.NOT_STARTED;
+
     private static String LOG_TAG = "Connection";
 
     Object mUserData;
@@ -137,8 +183,30 @@ public abstract class Connection {
     private android.telecom.Connection.VideoProvider mVideoProvider;
     public Call.State mPreHandoverState = Call.State.IDLE;
     private Bundle mExtras;
+    private int mPhoneType;
+
+    protected Connection(int phoneType) {
+        mPhoneType = phoneType;
+    }
 
     /* Instance Methods */
+
+    /**
+     * @return The telecom internal call ID associated with this connection.  Only to be used for
+     * debugging purposes.
+     */
+    public String getTelecomCallId() {
+        return mTelecomCallId;
+    }
+
+    /**
+     * Sets the telecom call ID associated with this connection.
+     *
+     * @param telecomCallId The telecom call ID.
+     */
+    public void setTelecomCallId(String telecomCallId) {
+        mTelecomCallId = telecomCallId;
+    }
 
     /**
      * Gets address (e.g. phone number) associated with connection.
@@ -265,7 +333,9 @@ public abstract class Connection {
      * {@link android.telephony.DisconnectCause}. If the call is not yet
      * disconnected, NOT_DISCONNECTED is returned.
      */
-    public abstract int getDisconnectCause();
+    public int getDisconnectCause() {
+        return mCause;
+    }
 
     /**
      * Returns a string disconnect cause which is from vendor.
@@ -423,13 +493,24 @@ public abstract class Connection {
         }
     }
 
-    public abstract PostDialState getPostDialState();
+    public PostDialState getPostDialState() {
+        return mPostDialState;
+    }
 
     /**
      * Returns the portion of the post dial string that has not
      * yet been dialed, or "" if none
      */
-    public abstract String getRemainingPostDialString();
+    public String getRemainingPostDialString() {
+        if (mPostDialState == PostDialState.CANCELLED
+                || mPostDialState == PostDialState.COMPLETE
+                || mPostDialString == null
+                || mPostDialString.length() <= mNextPostDialChar) {
+            return "";
+        }
+
+        return mPostDialString.substring(mNextPostDialChar);
+    }
 
     /**
      * See Phone.setOnPostDialWaitCharacter()
@@ -445,6 +526,11 @@ public abstract class Connection {
      * Cancel any post
      */
     public abstract void cancelPostDial();
+
+    /** Called when the connection has been disconnected */
+    public boolean onDisconnect(int cause) {
+        return false;
+    }
 
     /**
      * Returns the caller id presentation type for incoming and waiting calls
@@ -480,6 +566,28 @@ public abstract class Connection {
      */
     public abstract boolean isMultiparty();
 
+    /**
+     * Applicable only for IMS Call. Determines if this call is the origin of the conference call
+     * (i.e. {@code #isConferenceHost()} is {@code true}), or if it is a member of a conference
+     * hosted on another device.
+     *
+     * @return {@code true} if this call is the origin of the conference call it is a member of,
+     *      {@code false} otherwise.
+     */
+    public boolean isConferenceHost() {
+        return false;
+    }
+
+    /**
+     * Applicable only for IMS Call. Determines if a connection is a member of a conference hosted
+     * on another device.
+     *
+     * @return {@code true} if the connection is a member of a conference hosted on another device.
+     */
+    public boolean isMemberOfPeerConference() {
+        return false;
+    }
+
     public void migrateFrom(Connection c) {
         if (c == null) return;
         mListeners = c.mListeners;
@@ -489,6 +597,8 @@ public abstract class Connection {
         mConnectTimeReal = c.getConnectTimeReal();
         mHoldingStartTime = c.getHoldingStartTime();
         mOrigConnection = c.getOrigConnection();
+        mPostDialString = c.mPostDialString;
+        mNextPostDialChar = c.mNextPostDialChar;
     }
 
     /**
@@ -600,14 +710,15 @@ public abstract class Connection {
     }
 
     /**
-     * Called to set Connection capabilities.This will take Capabilities bitmask
-     * as input which is converted from Capabilities constants.
+     * Called to set Connection capabilities.  This will take Capabilities bitmask as input which is
+     * converted from Capabilities constants.
+     *
      * @See Connection.Capability.
-     * @param capability The Capabilities bitmask.
+     * @param capabilities The Capabilities bitmask.
      */
-    public void setConnectionCapabilities(int capability) {
-        if(mConnectionCapabilities != capability) {
-            mConnectionCapabilities = capability;
+    public void setConnectionCapabilities(int capabilities) {
+        if (mConnectionCapabilities != capabilities) {
+            mConnectionCapabilities = capabilities;
             for (Listener l : mListeners) {
                 l.onConnectionCapabilitiesChanged(mConnectionCapabilities);
             }
@@ -640,12 +751,18 @@ public abstract class Connection {
 
     /**
      * Notifies listeners that connection extras has changed.
-     * @param extras New connection extras.
+     * @param extras New connection extras. This Bundle will be cloned to ensure that any concurrent
+     * modifications to the extras Bundle do not affect Bundle operations in the onExtrasChanged
+     * listeners.
      */
     public void setConnectionExtras(Bundle extras) {
-        mExtras = extras;
+        if(extras != null) {
+            mExtras = new Bundle(extras);
+        } else {
+            mExtras = null;
+        }
         for (Listener l : mListeners) {
-            l.onExtrasChanged(extras);
+            l.onExtrasChanged(mExtras);
         }
     }
 
@@ -721,12 +838,47 @@ public abstract class Connection {
     }
 
     /**
+     * Notifies that the underlying phone has exited ECM mode.
+     */
+    public void onExitedEcmMode() {
+        for (Listener l : mListeners) {
+            l.onExitedEcmMode();
+        }
+    }
+
+    /**
      * Notifies this Connection of a request to disconnect a participant of the conference managed
      * by the connection.
      *
      * @param endpoint the {@link Uri} of the participant to disconnect.
      */
     public void onDisconnectConferenceParticipant(Uri endpoint) {
+    }
+
+    /**
+     * Called by a {@link android.telecom.Connection} to indicate that this call should be pulled
+     * to the local device.
+     */
+    public void pullExternalCall() {
+    }
+
+    /**
+     *
+     */
+    public int getPhoneType() {
+        return mPhoneType;
+    }
+
+    /**
+     * Reset the Connection time and Duration
+     */
+    public void resetConnectionTime() {
+        if (mPhoneType == PhoneConstants.PHONE_TYPE_CDMA_LTE ||
+                mPhoneType == PhoneConstants.PHONE_TYPE_CDMA) {
+            mConnectTime = System.currentTimeMillis();
+            mConnectTimeReal = SystemClock.elapsedRealtime();
+            mDuration = 0;
+        }
     }
 
     /**
@@ -737,6 +889,7 @@ public abstract class Connection {
     public String toString() {
         StringBuilder str = new StringBuilder(128);
 
+        str.append(" callId: " + getTelecomCallId());
         if (Rlog.isLoggable(LOG_TAG, Log.DEBUG)) {
             str.append("addr: " + getAddress())
                     .append(" pres.: " + getNumberPresentation())

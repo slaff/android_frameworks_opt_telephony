@@ -22,6 +22,8 @@ import android.telephony.PhoneNumberUtils;
 import android.text.TextUtils;
 import android.telephony.Rlog;
 
+import com.android.internal.telephony.GsmAlphabet;
+
 import java.util.Arrays;
 
 
@@ -154,8 +156,20 @@ public class AdnRecord implements Parcelable {
         return mAlphaTag;
     }
 
+    public int getEfid() {
+        return mEfid;
+    }
+
+    public int getRecId() {
+        return mRecordNumber;
+    }
+
     public String getNumber() {
         return mNumber;
+    }
+
+    public void setNumber(String number) {
+        mNumber = number;
     }
 
     public String[] getEmails() {
@@ -174,10 +188,18 @@ public class AdnRecord implements Parcelable {
         this.mAdditionalNumbers = additionalNumbers;
     }
 
+    public int getRecordNumber() {
+        return mRecordNumber;
+    }
+
+    public void setRecordNumber(int recNumber) {
+        mRecordNumber = recNumber;
+    }
+
     @Override
     public String toString() {
-        return "ADN Record 'Tag:" + mAlphaTag + "', Num:'" + mNumber + ", Emails:" +
-            Arrays.toString(mEmails) + ", Anrs:" + Arrays.toString(mAdditionalNumbers) + "'";
+        return "ADN Record '" + mAlphaTag + "' '" + mNumber + " " + mEmails + " "
+                + mAdditionalNumbers + "'";
     }
 
     public boolean isEmpty() {
@@ -253,56 +275,6 @@ public class AdnRecord implements Parcelable {
                 && arrayCompareNullEqualsEmpty(mAdditionalNumbers, adn.mAdditionalNumbers));
     }
 
-    public String[] updateAnrEmailArrayHelper(String dest[], String src[], int fileCount) {
-        if (fileCount == 0) {
-            return null;
-        }
-
-        // delete insert scenario
-        if (dest == null || src == null) {
-            return dest;
-        }
-
-        String[] ref = new String[fileCount];
-        for (int i = 0; i < fileCount; i++) {
-            ref[i] = "";
-        }
-
-        // Find common elements and put in the ref
-        // To save SIM_IO
-        for (int i = 0; i < src.length; i++) {
-            if (TextUtils.isEmpty(src[i])) {
-                continue;
-            }
-            for (int j = 0; j < dest.length; j++) {
-                if (src[i].equals(dest[j])) {
-                    ref[i] = src[i];
-                    break;
-                }
-            }
-        }
-
-        // fill out none common element into the ""
-        for (int i = 0; i < dest.length; i++) {
-            if (Arrays.asList(ref).contains(dest[i])) {
-                continue;
-            } else {
-                for (int j = 0; j < ref.length; j++) {
-                    if (TextUtils.isEmpty(ref[j])) {
-                        ref[j] = dest[i];
-                        break;
-                    }
-                }
-            }
-        }
-        return ref;
-    }
-
-    public void updateAnrEmailArray(AdnRecord adn, int emailFileNum, int anrFileNum) {
-        mEmails = updateAnrEmailArrayHelper(mEmails, adn.mEmails, emailFileNum);
-        mAdditionalNumbers = updateAnrEmailArrayHelper(mAdditionalNumbers,
-                    adn.mAdditionalNumbers, anrFileNum);
-    }
     //***** Parcelable Implementation
 
     @Override
@@ -332,7 +304,6 @@ public class AdnRecord implements Parcelable {
         byte[] bcdNumber;
         byte[] byteTag;
         byte[] adnString;
-        int length;
         int footerOffset = recordSize - FOOTER_SIZE_BYTES;
 
         // create an empty record
@@ -344,72 +315,37 @@ public class AdnRecord implements Parcelable {
         if ((TextUtils.isEmpty(mNumber)) && (TextUtils.isEmpty(mAlphaTag))) {
             Rlog.w(LOG_TAG, "[buildAdnString] Empty dialing number");
             return adnString;   // return the empty record (for delete)
+        } else if ((mNumber != null) && (mNumber.length()
+                > (ADN_DIALING_NUMBER_END - ADN_DIALING_NUMBER_START + 1) * 2)) {
+            Rlog.w(LOG_TAG,
+                    "[buildAdnString] Max length of dialing number is 20");
+            return null;
         } else if (mAlphaTag != null && mAlphaTag.length() > footerOffset) {
             Rlog.w(LOG_TAG,
                     "[buildAdnString] Max length of tag is " + footerOffset);
-            return null;
-        } else if (mNumber != null && mNumber.length()
-                > (ADN_DIALING_NUMBER_END - ADN_DIALING_NUMBER_START + 1) * 4) {
-            Rlog.w(LOG_TAG,
-                    "[buildAdnString] Max length of dialing number is 40");
             return null;
         } else {
             if (!(TextUtils.isEmpty(mNumber))) {
                 bcdNumber = PhoneNumberUtils.numberToCalledPartyBCD(mNumber);
 
-            if (mNumber != null && mNumber.length()
-                    > (ADN_DIALING_NUMBER_END - ADN_DIALING_NUMBER_START + 1) * 2
-                    && mNumber.length() <= 40 ) {
-                if (!hasExtendedRecord()) {
-                    Rlog.d(LOG_TAG,
-                            "[buildAdnString] No EXT1 file/record exists");
-                    return null;
-                }
-                length = (ADN_DIALING_NUMBER_END - ADN_DIALING_NUMBER_START + 1);
-            } else {
-                length = (bcdNumber.length);
-            }
-
             System.arraycopy(bcdNumber, 0, adnString,
-                    footerOffset + ADN_TON_AND_NPI,
-                    length);
+                    footerOffset + ADN_TON_AND_NPI, bcdNumber.length);
 
-            adnString[footerOffset + ADN_BCD_NUMBER_LENGTH] =
-                    (byte) length;
+                adnString[footerOffset + ADN_BCD_NUMBER_LENGTH]
+                        = (byte) (bcdNumber.length);
+            }
             adnString[footerOffset + ADN_CAPABILITY_ID]
                     = (byte) 0xFF; // Capability Id
             adnString[footerOffset + ADN_EXTENSION_ID]
-                    = (byte) mExtRecord; // Extension Record Id
+                    = (byte) 0xFF; // Extension Record Id
 
+            if (!TextUtils.isEmpty(mAlphaTag)) {
+                byteTag = GsmAlphabet.stringToGsm8BitPacked(mAlphaTag);
+                System.arraycopy(byteTag, 0, adnString, 0, byteTag.length);
+            }
+
+            return adnString;
         }
-        if (!TextUtils.isEmpty(mAlphaTag)) {
-            byteTag = IccUtils.stringToAdnStringField(mAlphaTag);
-            System.arraycopy(byteTag, 0, adnString, 0, byteTag.length);
-        }
-        return adnString;
-        }
-    }
-
-    /* Build the EXT1 data to store the remaining digits
-    /* when number length is greater than 20 */
-    public byte[] buildExtData() {
-        byte[] extData;
-        byte[] extendedNum;
-
-        // Each EXT1 record is 13 bytes.
-        extData = new byte[EXT_RECORD_LENGTH_BYTES];
-        for (int i = 0; i <  EXT_RECORD_LENGTH_BYTES; i++) {
-            extData[i] = (byte) 0xFF;
-        }
-
-        extendedNum = PhoneNumberUtils.numberToCalledPartyBCD(mNumber);
-
-        // extData stores the remaining digits of the number greater than 20.
-        System.arraycopy(extendedNum, 10, extData, 2, (extendedNum.length - 10));
-        extData[0] = (byte) 2; // Record Type: Additional data
-        extData[1] = (byte) ((extendedNum.length - 10)); //Length of extension data in bytes.
-        return extData;
-
     }
 
     /**
@@ -488,7 +424,4 @@ public class AdnRecord implements Parcelable {
         }
     }
 
-    public String[] getAnrNumbers() {
-        return getAdditionalNumbers();
-    }
 }

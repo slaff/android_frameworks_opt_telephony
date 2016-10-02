@@ -16,24 +16,19 @@
 
 package com.android.internal.telephony.uicc;
 
-import static android.Manifest.permission.READ_PHONE_STATE;
-
-import android.app.ActivityManager;
-import android.app.ActivityManagerNative;
 import android.app.AlertDialog;
-import android.app.INotificationManager;
-import android.app.Notification;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
+import android.app.usage.UsageStatsManager;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.content.res.Resources;
+import android.net.Uri;
 import android.os.AsyncResult;
 import android.os.Binder;
 import android.os.Handler;
@@ -41,9 +36,8 @@ import android.os.Message;
 import android.os.PowerManager;
 import android.os.Registrant;
 import android.os.RegistrantList;
-import android.os.RemoteException;
-import android.os.UserHandle;
 import android.preference.PreferenceManager;
+import android.provider.Settings;
 import android.telephony.Rlog;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
@@ -51,24 +45,20 @@ import android.util.LocalLog;
 import android.view.WindowManager;
 
 import com.android.internal.telephony.CommandsInterface;
-import com.android.internal.telephony.PhoneBase;
 import com.android.internal.telephony.CommandsInterface.RadioState;
-import com.android.internal.telephony.IccCardConstants.State;
-import com.android.internal.telephony.gsm.GSMPhone;
+import com.android.internal.telephony.RIL;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppType;
 import com.android.internal.telephony.uicc.IccCardStatus.CardState;
 import com.android.internal.telephony.uicc.IccCardStatus.PinState;
 import com.android.internal.telephony.cat.CatService;
-import com.android.internal.telephony.cdma.CDMALTEPhone;
-import com.android.internal.telephony.cdma.CDMAPhone;
-import com.android.internal.telephony.cdma.CdmaSubscriptionSourceManager;
-
-import android.os.SystemProperties;
 
 import com.android.internal.R;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
+
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 
 /**
@@ -82,9 +72,6 @@ public class UiccCard {
             "com.android.internal.telephony.uicc.ICC_CARD_ADDED";
 
     private static final String OPERATOR_BRAND_OVERRIDE_PREFIX = "operator_branding_";
-
-    private static final Intent MOBILE_NETWORK_SETTINGS_MSIM
-            = new Intent("com.android.settings.sim.SIM_SUB_INFO_SETTINGS");
 
     private final Object mLock = new Object();
     private CardState mCardState;
@@ -100,7 +87,6 @@ public class UiccCard {
     private RadioState mLastRadioState =  RadioState.RADIO_UNAVAILABLE;
     private UiccCarrierPrivilegeRules mCarrierPrivilegeRules;
     private boolean mDefaultAppsActivated;
-    private UICCConfig mUICCConfig = null;
 
     private RegistrantList mAbsentRegistrants = new RegistrantList();
     private RegistrantList mCarrierPrivilegeRegistrants = new RegistrantList();
@@ -146,7 +132,6 @@ public class UiccCard {
             mCatService = null;
             mUiccApplications = null;
             mCarrierPrivilegeRules = null;
-            mUICCConfig = null;
         }
     }
 
@@ -162,8 +147,6 @@ public class UiccCard {
             mCi = ci;
 
             //update applications
-            if (mUICCConfig == null)
-                mUICCConfig = new UICCConfig();
             if (DBG) log(ics.mApplications.length + " applications");
             for ( int i = 0; i < mUiccApplications.length; i++) {
                 if (mUiccApplications[i] == null) {
@@ -211,7 +194,7 @@ public class UiccCard {
                     mHandler.sendMessage(mHandler.obtainMessage(EVENT_CARD_ADDED, null));
                 }
             }
-            if (mCi.needsOldRilFeature("simactivation")) {
+            if (needsSimActivation()) {
                 if (mCardState == CardState.CARDSTATE_PRESENT) {
                     if (!mDefaultAppsActivated) {
                         activateDefaultApps();
@@ -226,6 +209,13 @@ public class UiccCard {
 
             mLastRadioState = radioState;
         }
+    }
+
+    private boolean needsSimActivation() {
+        if (mCi instanceof RIL) {
+            return ((RIL) mCi).needsOldRilFeature("simactivation");
+        }
+        return false;
     }
 
     protected void createAndUpdateCatService() {
@@ -366,12 +356,6 @@ public class UiccCard {
 
         if (isHotSwapSupported) {
             log("onIccSwap: isHotSwapSupported is true, don't prompt for rebooting");
-            // If an Icc card is being removed, it may be the default data/voice/messaging
-            // subscription holder. We need to notify the user that they may have to configure
-            // their defaults again. Relevant only in MSIM scenario
-            if (isAdded && (TelephonyManager.getDefault().getPhoneCount() > 1)) {
-                notifyOfPotentialConfigurationNeeded();
-            }
             return;
         }
         log("onIccSwap: isHotSwapSupported is false, prompt for rebooting");
@@ -439,39 +423,6 @@ public class UiccCard {
         }
     }
 
-    private void notifyOfPotentialConfigurationNeeded() {
-        INotificationManager inm = NotificationManager.getService();
-        if (inm == null) {
-            return;
-        }
-
-        Resources r = Resources.getSystem();
-
-        Notification notification = new Notification.Builder(mContext)
-                .setSmallIcon(com.android.internal.R.drawable.stat_notify_disabled_data)
-                .setColor(r.getColor(com.android.internal.R.color.system_notification_accent_color))
-                .setContentTitle(r.getString(
-                        com.android.internal.R.string.uicc_hot_swapped_event_title))
-                .setContentText(r.getString(
-                        com.android.internal.R.string.uicc_hot_swapped_event_text))
-                .setDefaults(Notification.DEFAULT_VIBRATE)
-                .setPriority(Notification.PRIORITY_MAX)
-                .setContentIntent(PendingIntent.getActivityAsUser(mContext, 0,
-                        MOBILE_NETWORK_SETTINGS_MSIM, PendingIntent.FLAG_CANCEL_CURRENT, null,
-                        new UserHandle(0)))
-                        .build();
-
-        // Since this is coming from android's phone process, manually enqueue this notification
-        try {
-            int[] outId = new int[1];
-            inm.enqueueNotificationWithTag("android", "android", null,
-                    com.android.internal.R.string.uicc_hot_swapped_event_title,
-                    notification, outId, ActivityManager.getCurrentUser());
-        } catch (RuntimeException | RemoteException e) {
-            log(e.toString());
-        }
-    }
-
     protected Handler mHandler = new Handler() {
         @Override
         public void handleMessage(Message msg){
@@ -505,9 +456,81 @@ public class UiccCard {
         }
     };
 
+    private boolean isPackageInstalled(String pkgName) {
+        PackageManager pm = mContext.getPackageManager();
+        try {
+            pm.getPackageInfo(pkgName, PackageManager.GET_ACTIVITIES);
+            if (DBG) log(pkgName + " is installed.");
+            return true;
+        } catch (PackageManager.NameNotFoundException e) {
+            if (DBG) log(pkgName + " is not installed.");
+            return false;
+        }
+    }
+
+    private class ClickListener implements DialogInterface.OnClickListener {
+        String pkgName;
+        public ClickListener(String pkgName) {
+            this.pkgName = pkgName;
+        }
+        @Override
+        public void onClick(DialogInterface dialog, int which) {
+            synchronized (mLock) {
+                if (which == DialogInterface.BUTTON_POSITIVE) {
+                    Intent market = new Intent(Intent.ACTION_VIEW);
+                    market.setData(Uri.parse("market://details?id=" + pkgName));
+                    market.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    mContext.startActivity(market);
+                } else if (which == DialogInterface.BUTTON_NEGATIVE) {
+                    if (DBG) log("Not now clicked for carrier app dialog.");
+                }
+            }
+        }
+    }
+
+    private void promptInstallCarrierApp(String pkgName) {
+        DialogInterface.OnClickListener listener = new ClickListener(pkgName);
+
+        Resources r = Resources.getSystem();
+        String message = r.getString(R.string.carrier_app_dialog_message);
+        String buttonTxt = r.getString(R.string.carrier_app_dialog_button);
+        String notNowTxt = r.getString(R.string.carrier_app_dialog_not_now);
+
+        AlertDialog dialog = new AlertDialog.Builder(mContext)
+        .setMessage(message)
+        .setNegativeButton(notNowTxt, listener)
+        .setPositiveButton(buttonTxt, listener)
+        .create();
+        dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_SYSTEM_ALERT);
+        dialog.show();
+    }
+
     private void onCarrierPriviligesLoadedMessage() {
+        UsageStatsManager usm = (UsageStatsManager) mContext.getSystemService(
+                Context.USAGE_STATS_SERVICE);
+        if (usm != null) {
+            usm.onCarrierPrivilegedAppsChanged();
+        }
         synchronized (mLock) {
             mCarrierPrivilegeRegistrants.notifyRegistrants();
+            String whitelistSetting = Settings.Global.getString(mContext.getContentResolver(),
+                    Settings.Global.CARRIER_APP_WHITELIST);
+            if (TextUtils.isEmpty(whitelistSetting)) {
+                return;
+            }
+            HashSet<String> carrierAppSet = new HashSet<String>(
+                    Arrays.asList(whitelistSetting.split("\\s*;\\s*")));
+            if (carrierAppSet.isEmpty()) {
+                return;
+            }
+
+            List<String> pkgNames = mCarrierPrivilegeRules.getPackageNames();
+            for (String pkgName : pkgNames) {
+                if (!TextUtils.isEmpty(pkgName) && carrierAppSet.contains(pkgName)
+                        && !isPackageInstalled(pkgName)) {
+                    promptInstallCarrierApp(pkgName);
+                }
+            }
         }
     }
 
@@ -688,11 +711,19 @@ public class UiccCard {
     }
 
     /**
-     * Returns true iff carrier priveleges rules are null (dont need to be loaded) or loaded.
+     * Returns true iff carrier privileges rules are null (dont need to be loaded) or loaded.
      */
     public boolean areCarrierPriviligeRulesLoaded() {
         return mCarrierPrivilegeRules == null
             || mCarrierPrivilegeRules.areCarrierPriviligeRulesLoaded();
+    }
+
+    /**
+     * Returns true if there are some carrier privilege rules loaded and specified.
+     */
+    public boolean hasCarrierPrivilegeRules() {
+        return mCarrierPrivilegeRules != null
+                && mCarrierPrivilegeRules.hasCarrierPrivilegeRules();
     }
 
     /**
@@ -711,6 +742,15 @@ public class UiccCard {
         return mCarrierPrivilegeRules == null ?
             TelephonyManager.CARRIER_PRIVILEGE_STATUS_RULES_NOT_LOADED :
             mCarrierPrivilegeRules.getCarrierPrivilegeStatus(packageManager, packageName);
+    }
+
+    /**
+     * Exposes {@link UiccCarrierPrivilegeRules.getCarrierPrivilegeStatus}.
+     */
+    public int getCarrierPrivilegeStatus(PackageInfo packageInfo) {
+        return mCarrierPrivilegeRules == null ?
+            TelephonyManager.CARRIER_PRIVILEGE_STATUS_RULES_NOT_LOADED :
+            mCarrierPrivilegeRules.getCarrierPrivilegeStatus(packageInfo);
     }
 
     /**
@@ -772,10 +812,6 @@ public class UiccCard {
             }
         }
         return null;
-    }
-
-    public UICCConfig getUICCConfig() {
-        return mUICCConfig;
     }
 
     private void log(String msg) {
