@@ -135,8 +135,6 @@ public class DcTracker extends DcTrackerBase {
 
     static final Uri PREFERAPN_NO_UPDATE_URI_USING_SUBID =
                         Uri.parse("content://telephony/carriers/preferapn_no_update/subId/");
-    static final Uri PREFERAPN_NO_UPDATE_URI_USING_SUBID_IMSI =
-            Uri.parse("content://telephony/carriers/preferapn_no_update/subIdImsi/");
     static final String APN_ID = "apn_id";
 
     /**
@@ -2767,9 +2765,7 @@ public class DcTracker extends DcTrackerBase {
         }
 
         String subId = Long.toString(mPhone.getSubId());
-        String imsi = mPhone.getSubscriberId();
-        Uri uri = Uri.withAppendedPath(PREFERAPN_NO_UPDATE_URI_USING_SUBID_IMSI, subId);
-        uri = Uri.withAppendedPath(uri, imsi);
+        Uri uri = Uri.withAppendedPath(PREFERAPN_NO_UPDATE_URI_USING_SUBID, subId);
         log("setPreferredApn: delete");
         ContentResolver resolver = mPhone.getContext().getContentResolver();
         resolver.delete(uri, null, null);
@@ -2789,9 +2785,7 @@ public class DcTracker extends DcTrackerBase {
         }
 
         String subId = Long.toString(mPhone.getSubId());
-        String imsi = mPhone.getSubscriberId();
-        Uri uri = Uri.withAppendedPath(PREFERAPN_NO_UPDATE_URI_USING_SUBID_IMSI, subId);
-        uri = Uri.withAppendedPath(uri, imsi);
+        Uri uri = Uri.withAppendedPath(PREFERAPN_NO_UPDATE_URI_USING_SUBID, subId);
         Cursor cursor = mPhone.getContext().getContentResolver().query(
                 uri, new String[] { "_id", "name", "apn" },
                 null, null, Telephony.Carriers.DEFAULT_SORT_ORDER);
