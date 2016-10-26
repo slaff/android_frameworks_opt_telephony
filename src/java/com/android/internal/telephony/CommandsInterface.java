@@ -25,6 +25,9 @@ import com.android.internal.telephony.uicc.SimPhoneBookAdnRecord;
 
 import android.os.Message;
 import android.os.Handler;
+import android.service.carrier.CarrierIdentifier;
+
+import java.util.List;
 
 
 /**
