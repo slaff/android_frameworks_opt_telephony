@@ -1408,6 +1408,14 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
+    public void registerForPcoData(Handler h, int what, Object obj) {
+    }
+
+    @Override
+    public void unregisterForPcoData(Handler h) {
+    }
+
+    @Override
     public void unSetOnCatSendSmsResult(Handler h) { // Samsung STK
 
     }
@@ -1416,5 +1424,4 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     public void setOnCatSendSmsResult(Handler h, int what, Object obj) { // Samsung STK
 
     }
-
 }
