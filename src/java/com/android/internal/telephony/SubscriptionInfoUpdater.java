@@ -81,6 +81,7 @@ public class SubscriptionInfoUpdater extends Handler {
     private static final int DELAY_MILLIS = 500;
 
     private static final String ICCID_STRING_FOR_NO_SIM = "";
+    private static final String ICCID_STRING_FOR_NV = "DUMMY_NV_ID";
     /**
      *  int[] sInsertSimState maintains all slots' SIM inserted status currently,
      *  it may contain 4 kinds of values:
@@ -560,6 +561,15 @@ public class SubscriptionInfoUpdater extends Handler {
         mIccId[slotId] = ICCID_STRING_FOR_NO_SIM;
         update(slotId);
         updateCarrierServices(slotId, simState);
+    }
+
+    public void updateSubIdForNV(int slotId) {
+        mIccId[slotId] = ICCID_STRING_FOR_NV;
+        logd("[updateSubIdForNV]+ Start");
+        if (isAllIccIdQueryDone()) {
+            logd("[updateSubIdForNV]+ updating");
+            updateSubscriptionInfoByIccId();
+        }
     }
 
     /**
