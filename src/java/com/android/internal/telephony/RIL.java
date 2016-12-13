@@ -3708,6 +3708,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
                     mAdnRecordsInfoRegistrants.notifyRegistrants(
                                             new AsyncResult(null, ret, null));
                 }
+                break;
             case RIL_UNSOL_PCO_DATA:
                 if (RILJ_LOGD) unsljLogRet(response, ret);
 
