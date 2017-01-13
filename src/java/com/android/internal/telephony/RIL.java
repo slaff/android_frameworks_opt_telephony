@@ -338,13 +338,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
     private static final int CDMA_BROADCAST_SMS_NO_OF_SERVICE_CATEGORIES = 31;
 
 
-    private static final char NULL_TERMINATOR = '\0';
-
-    private static final int NULL_TERMINATOR_LENGTH = BYTE_SIZE;
-
-    /** Sim DePersonalization code */
-    private static final int OEMHOOK_EVT_HOOK_ENTER_DEPERSONALIZATION_CODE = OEMHOOK_BASE + 51;
-
     /* Custom Radio Access Family (RAF)
      * Handle RAF in unified device trees (CDMA+GSM variants, unique source)
      */
