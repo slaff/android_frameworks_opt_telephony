@@ -225,6 +225,12 @@ public class TelephonyComponentFactory {
         return new SubscriptionInfoUpdater(BackgroundThread.get().getLooper(), context, phones, ci);
     }
 
+    public SubscriptionInfoUpdater makeSubscriptionInfoUpdater(Looper looper, Context context,
+            Phone[] phones, CommandsInterface[] ci) {
+        Rlog.d(LOG_TAG, "makeSubscriptionInfoUpdater");
+        return new SubscriptionInfoUpdater(looper, context, phones, ci);
+    }
+
     public void makeExtTelephonyClasses(Context context,
             Phone[] phones, CommandsInterface[] commandsInterfaces) {
         Rlog.d(LOG_TAG, "makeExtTelephonyClasses");
@@ -238,4 +244,11 @@ public class TelephonyComponentFactory {
                 context, subscriptionController, looper, tr, cis,
                 phones);
     }
+
+    public RIL makeRIL(Context context, int preferredNetworkType,
+            int cdmaSubscription, Integer instanceId) {
+        Rlog.d(LOG_TAG, "makeRIL");
+        return new RIL(context, preferredNetworkType, cdmaSubscription, instanceId);
+    }
+
 }
