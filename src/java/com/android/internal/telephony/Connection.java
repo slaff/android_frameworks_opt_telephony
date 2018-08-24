@@ -258,7 +258,7 @@ public abstract class Connection {
      */
 
     public String getAddress() {
-        return mAddress;
+        return (mAddress == null || mAddress.isEmpty()) ? getOrigDialString() : mAddress;
     }
 
     /**
