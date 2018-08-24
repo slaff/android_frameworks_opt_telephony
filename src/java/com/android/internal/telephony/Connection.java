@@ -348,7 +348,7 @@ public abstract class Connection {
 
     @UnsupportedAppUsage
     public String getAddress() {
-        return mAddress;
+        return (mAddress == null || mAddress.isEmpty()) ? getOrigDialString() : mAddress;
     }
 
     /**
