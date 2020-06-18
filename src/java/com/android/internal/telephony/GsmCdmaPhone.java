@@ -402,9 +402,25 @@ public class GsmCdmaPhone extends Phone {
                 logd("update icc_operator_numeric=" + operatorNumeric);
                 tm.setSimOperatorNumericForPhone(mPhoneId, operatorNumeric);
 
-                SubscriptionController.getInstance().setMccMnc(operatorNumeric, getSubId());
                 // Sets iso country property by retrieving from build-time system property
-                setIsoCountryProperty(operatorNumeric);
+                String iso = "";
+                try {
+                    iso = MccTable.countryCodeForMcc(operatorNumeric.substring(0, 3));
+                } catch (StringIndexOutOfBoundsException ex) {
+                    Rlog.e(LOG_TAG, "init: countryCodeForMcc error", ex);
+                }
+
+                logd("init: set 'gsm.sim.operator.iso-country' to iso=" + iso);
+                tm.setSimCountryIsoForPhone(mPhoneId, iso);
+
+                // Skip if the subscription ID is not valid, because it can happen
+                // that the SIM is not loaded yet at this point.
+                final int subId = getSubId();
+                if (subId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                    SubscriptionController.getInstance().setMccMnc(operatorNumeric, subId);
+                    SubscriptionController.getInstance().setCountryIso(iso, subId);
+                }
+
                 // Updates MCC MNC device configuration information
                 logd("update mccmnc=" + operatorNumeric);
                 MccTable.updateMccMncConfiguration(mContext, operatorNumeric);
@@ -412,31 +428,6 @@ public class GsmCdmaPhone extends Phone {
 
             // Sets current entry in the telephony carrier table
             updateCurrentCarrierInProvider(operatorNumeric);
-        }
-    }
-
-    //CDMA
-    /**
-     * Sets PROPERTY_ICC_OPERATOR_ISO_COUNTRY property
-     *
-     */
-    private void setIsoCountryProperty(String operatorNumeric) {
-        TelephonyManager tm = TelephonyManager.from(mContext);
-        if (TextUtils.isEmpty(operatorNumeric)) {
-            logd("setIsoCountryProperty: clear 'gsm.sim.operator.iso-country'");
-            tm.setSimCountryIsoForPhone(mPhoneId, "");
-            SubscriptionController.getInstance().setCountryIso("", getSubId());
-        } else {
-            String iso = "";
-            try {
-                iso = MccTable.countryCodeForMcc(operatorNumeric.substring(0, 3));
-            } catch (StringIndexOutOfBoundsException ex) {
-                Rlog.e(LOG_TAG, "setIsoCountryProperty: countryCodeForMcc error", ex);
-            }
-
-            logd("setIsoCountryProperty: set 'gsm.sim.operator.iso-country' to iso=" + iso);
-            tm.setSimCountryIsoForPhone(mPhoneId, iso);
-            SubscriptionController.getInstance().setCountryIso(iso, getSubId());
         }
     }
 
@@ -3439,6 +3430,11 @@ public class GsmCdmaPhone extends Phone {
             if (DBG) Rlog.d(LOG_TAG, "isOtaSpNumber " + isOtaSpNum);
             return isOtaSpNum;
         }
+    }
+
+    @Override
+    public int getOtasp() {
+        return mSST.getOtasp();
     }
 
     @Override
