@@ -29,6 +29,7 @@ import static android.telephony.TelephonyManager.EXTRA_SIM_COMBINATION_WARNING_T
 import static android.telephony.TelephonyManager.EXTRA_SIM_COMBINATION_WARNING_TYPE_NONE;
 import static android.telephony.TelephonyManager.EXTRA_SUBSCRIPTION_ID;
 
+import android.annotation.CallbackExecutor;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.app.PendingIntent;
@@ -52,6 +53,7 @@ import android.text.TextUtils;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.data.DataSettingsManager.DataSettingsManagerCallback;
 import com.android.internal.telephony.util.ArrayUtils;
 
 import java.lang.annotation.Retention;
@@ -59,6 +61,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 /**
@@ -150,6 +153,9 @@ public class MultiSimSettingController extends Handler {
     // device.
     private final boolean mIsAskEverytimeSupportedForSms;
 
+    // The number of existing DataSettingsControllerCallback
+    private int mCallbacksCount;
+
     private static final String SETTING_USER_PREF_DATA_SUB = "user_preferred_data_sub";
 
     private final BroadcastReceiver mIntentReceiver = new BroadcastReceiver() {
@@ -164,6 +170,37 @@ public class MultiSimSettingController extends Handler {
             }
         }
     };
+
+    private static class DataSettingsControllerCallback extends DataSettingsManagerCallback {
+        private final Phone mPhone;
+
+        DataSettingsControllerCallback(@NonNull Phone phone,
+                @NonNull @CallbackExecutor Executor executor) {
+            super(executor);
+            mPhone = phone;
+        }
+
+        @Override
+        public void onDataEnabledChanged(boolean enabled,
+                @TelephonyManager.DataEnabledChangedReason int reason, String callingPackage) {
+            int subId = mPhone.getSubId();
+            // notifyUserDataEnabled if the change is called from external and reason is
+            // DATA_ENABLED_REASON_USER
+            if (SubscriptionManager.isValidSubscriptionId(subId)
+                    && reason == TelephonyManager.DATA_ENABLED_REASON_USER
+                    && !getInstance().mContext.getOpPackageName().equals(callingPackage)) {
+                getInstance().notifyUserDataEnabled(mPhone.getSubId(), enabled);
+            }
+        }
+
+        @Override
+        public void onDataRoamingEnabledChanged(boolean enabled) {
+            int subId = mPhone.getSubId();
+            if (SubscriptionManager.isValidSubscriptionId(subId)) {
+                getInstance().notifyRoamingDataEnabled(mPhone.getSubId(), enabled);
+            }
+        }
+    }
 
     /**
      * Return the singleton or create one if not existed.
@@ -266,7 +303,7 @@ public class MultiSimSettingController extends Handler {
             case EVENT_USER_DATA_ENABLED: {
                 int subId = msg.arg1;
                 boolean enable = msg.arg2 != 0;
-                onUserDataEnabled(subId, enable);
+                onUserDataEnabled(subId, enable, true);
                 break;
             }
             case EVENT_ROAMING_DATA_ENABLED: {
@@ -315,14 +352,15 @@ public class MultiSimSettingController extends Handler {
      * If user is enabling a non-default non-opportunistic subscription, make it default
      * data subscription.
      */
-    protected void onUserDataEnabled(int subId, boolean enable) {
-        if (DBG) log("onUserDataEnabled");
+    private void onUserDataEnabled(int subId, boolean enable, boolean setDefaultData) {
+        if (DBG) log("[onUserDataEnabled] subId=" + subId + " enable=" + enable +
+        " setDefaultData=" + setDefaultData);
         // Make sure MOBILE_DATA of subscriptions in same group are synced.
         setUserDataEnabledForGroup(subId, enable);
 
         // If user is enabling a non-default non-opportunistic subscription, make it default.
         if (mSubController.getDefaultDataSubId() != subId && !mSubController.isOpportunistic(subId)
-                && enable && mSubController.isActiveSubId(subId)) {
+                && enable && mSubController.isActiveSubId(subId) && setDefaultData) {
              android.provider.Settings.Global.putInt(mContext.getContentResolver(),
                  SETTING_USER_PREF_DATA_SUB, subId);
             mSubController.setDefaultDataSubId(subId);
@@ -353,6 +391,7 @@ public class MultiSimSettingController extends Handler {
             }
             reEvaluateAll();
         }
+        registerDataSettingsControllerCallbackAsNeeded();
     }
 
     /**
@@ -416,7 +455,11 @@ public class MultiSimSettingController extends Handler {
         reEvaluateAll();
     }
 
-    private boolean isCarrierConfigLoadedForAllSub() {
+    /**
+     * Check whether carrier config loaded for all subs
+     */
+    @VisibleForTesting
+    public boolean isCarrierConfigLoadedForAllSub() {
         int[] activeSubIds = mSubController.getActiveSubIdList(false);
         for (int activeSubId : activeSubIds) {
             boolean isLoaded = false;
@@ -444,6 +487,7 @@ public class MultiSimSettingController extends Handler {
         for (Phone phone : PhoneFactory.getPhones()) {
             phone.mCi.registerForRadioStateChanged(this, EVENT_RADIO_STATE_CHANGED, null);
         }
+        registerDataSettingsControllerCallbackAsNeeded();
     }
 
     /**
@@ -503,13 +547,23 @@ public class MultiSimSettingController extends Handler {
         try {
             enable = GlobalSettingsHelper.getBoolean(
                     mContext, Settings.Global.MOBILE_DATA, refSubId);
-            onUserDataEnabled(refSubId, enable);
         } catch (SettingNotFoundException exception) {
             //pass invalid refSubId to fetch the single-sim setting
             enable = GlobalSettingsHelper.getBoolean(
                     mContext, Settings.Global.MOBILE_DATA, INVALID_SUBSCRIPTION_ID, enable);
-            onUserDataEnabled(refSubId, enable);
         }
+        boolean setDefaultData = true;
+        List<SubscriptionInfo> activeSubList = mSubController.getActiveSubscriptionInfoList(
+                mContext.getOpPackageName(), mContext.getAttributionTag());
+        for (SubscriptionInfo activeInfo : activeSubList) {
+            if (!(groupUuid.equals(activeInfo.getGroupUuid()))) {
+                // Do not set refSubId as defaultDataSubId if there are other active
+                // subscriptions which does not belong to this groupUuid
+                setDefaultData = false;
+                break;
+            }
+        }
+        onUserDataEnabled(refSubId, enable, setDefaultData);
 
         enable = false;
         try {
@@ -717,6 +771,12 @@ public class MultiSimSettingController extends Handler {
             boolean voiceSelected, boolean smsSelected) {
         int dialogType = EXTRA_DEFAULT_SUBSCRIPTION_SELECT_TYPE_NONE;
 
+        // Do not show preference selection dialog during SuW as there is fullscreen activity to
+        // choose preference.
+        if (Settings.Global.getInt(mContext.getContentResolver(),
+                Settings.Global.DEVICE_PROVISIONED, 0) == 0) {
+            return dialogType;
+        }
         // If a primary subscription is removed and only one is left active, ask user
         // for preferred sub selection if any default setting is not set.
         // If another primary subscription is added or default data is not selected, ask
@@ -790,8 +850,14 @@ public class MultiSimSettingController extends Handler {
                     && phone.isUserDataEnabled()
                     && !areSubscriptionsInSameGroup(defaultDataSub, phone.getSubId())) {
                 log("setting data to false on " + phone.getSubId());
-                phone.getDataEnabledSettings().setDataEnabled(
-                        TelephonyManager.DATA_ENABLED_REASON_USER, false);
+                if (phone.isUsingNewDataStack()) {
+                    phone.getDataSettingsManager().setDataEnabled(
+                            TelephonyManager.DATA_ENABLED_REASON_USER, false,
+                            mContext.getOpPackageName());
+                } else {
+                    phone.getDataEnabledSettings().setDataEnabled(
+                            TelephonyManager.DATA_ENABLED_REASON_USER, false);
+                }
             }
         }
     }
@@ -822,12 +888,18 @@ public class MultiSimSettingController extends Handler {
             int currentSubId = info.getSubscriptionId();
             // TODO: simplify when setUserDataEnabled becomes singleton
             if (mSubController.isActiveSubId(currentSubId)) {
-                // For active subscription, call setUserDataEnabled through DataEnabledSettings.
+                // For active subscription, call setUserDataEnabled through DataSettingsManager.
                 Phone phone = PhoneFactory.getPhone(mSubController.getPhoneId(currentSubId));
                 // If enable is true and it's not opportunistic subscription, we don't enable it,
-                // as there can't e two
+                // as there can't be two
                 if (phone != null) {
-                    phone.getDataEnabledSettings().setUserDataEnabled(enable, false);
+                    if (phone.isUsingNewDataStack()) {
+                        phone.getDataSettingsManager().setDataEnabled(
+                                TelephonyManager.DATA_ENABLED_REASON_USER, enable,
+                                mContext.getOpPackageName());
+                    } else {
+                        phone.getDataEnabledSettings().setUserDataEnabled(enable, false);
+                    }
                 }
             } else {
                 // For inactive subscription, directly write into global settings.
@@ -923,7 +995,7 @@ public class MultiSimSettingController extends Handler {
             EuiccManager euiccManager = (EuiccManager)
                     mContext.getSystemService(Context.EUICC_SERVICE);
             euiccManager.switchToSubscription(SubscriptionManager.INVALID_SUBSCRIPTION_ID,
-                    PendingIntent.getService(
+                    info.getPortIndex(), PendingIntent.getService(
                             mContext, 0, new Intent(), PendingIntent.FLAG_IMMUTABLE));
         }
     }
@@ -995,6 +1067,19 @@ public class MultiSimSettingController extends Handler {
             }
         }
         return true;
+    }
+
+    private void registerDataSettingsControllerCallbackAsNeeded() {
+        // Only register callbacks for new phone instance as PhoneFactory does not remove
+        // existing phone instance.
+        Phone[] phones = PhoneFactory.getPhones();
+        for (int i = mCallbacksCount; i < phones.length; i++) {
+            if (phones[i].isUsingNewDataStack()) {
+                phones[i].getDataSettingsManager().registerCallback(
+                        new DataSettingsControllerCallback(phones[i], this::post));
+            }
+        }
+        mCallbacksCount = phones.length;
     }
 
     private void log(String msg) {
